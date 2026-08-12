@@ -54,6 +54,7 @@ model Reservation {
   partySize     Int
   customerName  String
   customerPhone String
+  customerEmail String?
   request       String?
   status        ReservationStatus @default(CONFIRMED)
   activeSlotKey String?           @unique

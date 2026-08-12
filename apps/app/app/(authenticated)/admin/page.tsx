@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { env } from "@/env";
 import { Header } from "../components/header";
+import { ImportHolidaysButton } from "./import-holidays-button";
 import { ReservationsTable } from "./reservations-table";
 
 export const metadata: Metadata = {
@@ -25,15 +26,18 @@ const AdminPage = async () => {
   return (
     <>
       <Header page="예약 관리" pages={["테이블GO"]}>
-        <Button asChild className="mr-4" size="sm" variant="outline">
-          <Link
-            href={env.NEXT_PUBLIC_WEB_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            예약 사이트 보기
-          </Link>
-        </Button>
+        <div className="mr-4 flex items-center gap-2">
+          <ImportHolidaysButton />
+          <Button asChild size="sm" variant="outline">
+            <Link
+              href={env.NEXT_PUBLIC_WEB_URL}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              예약 사이트 보기
+            </Link>
+          </Button>
+        </div>
       </Header>
       <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
         <ReservationsTable reservations={reservations} />

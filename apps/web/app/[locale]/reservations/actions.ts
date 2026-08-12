@@ -2,6 +2,7 @@
 
 import { database } from "@repo/database";
 import { revalidatePath } from "next/cache";
+import { isValidEmail, isValidName, isValidPhone } from "./validation";
 
 function parseDateOnly(dateStr: string) {
   return new Date(`${dateStr}T00:00:00.000Z`);
@@ -82,6 +83,7 @@ export async function getMonthAvailability(month: string) {
 }
 
 export interface CreateReservationInput {
+  customerEmail?: string;
   customerName: string;
   customerPhone: string;
   date: string;
@@ -123,9 +125,25 @@ export async function createReservation(
 
   const customerName = input.customerName.trim();
   const customerPhone = input.customerPhone.trim();
+  const customerEmail = input.customerEmail?.trim();
 
   if (!(customerName && customerPhone)) {
     return { success: false, error: "이름과 연락처를 입력해주세요." };
+  }
+
+  if (!isValidName(customerName)) {
+    return {
+      success: false,
+      error: "이름은 한글 또는 영문으로 2자 이상 입력해주세요.",
+    };
+  }
+
+  if (!isValidPhone(customerPhone)) {
+    return { success: false, error: "올바른 전화번호 형식이 아닙니다." };
+  }
+
+  if (customerEmail && !isValidEmail(customerEmail)) {
+    return { success: false, error: "올바른 이메일 형식이 아닙니다." };
   }
 
   if (
@@ -155,6 +173,7 @@ export async function createReservation(
         partySize: input.partySize,
         customerName,
         customerPhone,
+        customerEmail: customerEmail || undefined,
         request: input.request?.trim() || undefined,
         // Enforced unique at the DB level (see schema.prisma) so that two
         // requests racing past the check above can't both succeed.

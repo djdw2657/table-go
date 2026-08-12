@@ -21,10 +21,27 @@ import {
   getAvailability,
   getMonthAvailability,
 } from "./actions";
+import {
+  EMAIL_ERROR,
+  formatPhoneNumber,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+  NAME_ERROR,
+  PHONE_ERROR,
+} from "./validation";
 
 interface ReservationFormProps {
   timeSlots: TimeSlot[];
 }
+
+const QUICK_REQUESTS = [
+  "창가석",
+  "조용한자리",
+  "알레르기 있음",
+  "유아 동반",
+  "기념일",
+];
 
 // How often to re-check the selected date's availability and the visible
 // month's "마감" (fully booked) status. Short enough to feel live, long
@@ -102,7 +119,40 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const [partySize, setPartySize] = useState(2);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [request, setRequest] = useState("");
+
+  const [nameTouched, setNameTouched] = useState(false);
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+
+  const nameError =
+    nameTouched && !isValidName(customerName) ? NAME_ERROR : null;
+  const phoneError =
+    phoneTouched && !isValidPhone(customerPhone) ? PHONE_ERROR : null;
+  const emailError =
+    emailTouched && !isValidEmail(customerEmail) ? EMAIL_ERROR : null;
+
+  const toggleQuickRequest = (tag: string) => {
+    setRequest((previous) => {
+      const parts = previous
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const index = parts.indexOf(tag);
+      if (index === -1) {
+        return [...parts, tag].join(", ");
+      }
+      parts.splice(index, 1);
+      return parts.join(", ");
+    });
+  };
+
+  const isRequestTagActive = (tag: string) =>
+    request
+      .split(",")
+      .map((part) => part.trim())
+      .includes(tag);
 
   const selectedSlotRef = useRef(selectedSlot);
   useEffect(() => {
@@ -190,9 +240,23 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+    setNameTouched(true);
+    setPhoneTouched(true);
+    setEmailTouched(true);
 
     if (!(selectedDate && selectedSlot)) {
       setError("날짜와 시간을 선택해주세요.");
+      return;
+    }
+
+    if (
+      !(
+        isValidName(customerName) &&
+        isValidPhone(customerPhone) &&
+        isValidEmail(customerEmail)
+      )
+    ) {
+      setError("입력 내용을 다시 확인해주세요.");
       return;
     }
 
@@ -205,6 +269,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
         partySize,
         customerName,
         customerPhone,
+        customerEmail: customerEmail || undefined,
         request,
       });
 
@@ -285,26 +350,66 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
         <div className="grid gap-2">
           <Label htmlFor="customerName">예약자 이름</Label>
           <Input
+            aria-invalid={Boolean(nameError)}
             id="customerName"
+            onBlur={() => setNameTouched(true)}
             onChange={(event) => setCustomerName(event.target.value)}
             required
             value={customerName}
           />
+          {nameError && <p className="text-destructive text-sm">{nameError}</p>}
         </div>
 
         <div className="grid gap-2">
           <Label htmlFor="customerPhone">연락처</Label>
           <Input
+            aria-invalid={Boolean(phoneError)}
             id="customerPhone"
-            onChange={(event) => setCustomerPhone(event.target.value)}
+            inputMode="numeric"
+            onBlur={() => setPhoneTouched(true)}
+            onChange={(event) =>
+              setCustomerPhone(formatPhoneNumber(event.target.value))
+            }
             placeholder="010-1234-5678"
             required
             value={customerPhone}
           />
+          {phoneError && (
+            <p className="text-destructive text-sm">{phoneError}</p>
+          )}
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="customerEmail">이메일 (선택)</Label>
+          <Input
+            aria-invalid={Boolean(emailError)}
+            id="customerEmail"
+            onBlur={() => setEmailTouched(true)}
+            onChange={(event) => setCustomerEmail(event.target.value)}
+            placeholder="name@example.com"
+            type="email"
+            value={customerEmail}
+          />
+          {emailError && (
+            <p className="text-destructive text-sm">{emailError}</p>
+          )}
         </div>
 
         <div className="grid gap-2">
           <Label htmlFor="request">요청사항 (선택)</Label>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_REQUESTS.map((tag) => (
+              <Button
+                key={tag}
+                onClick={() => toggleQuickRequest(tag)}
+                size="sm"
+                type="button"
+                variant={isRequestTagActive(tag) ? "default" : "outline"}
+              >
+                {tag}
+              </Button>
+            ))}
+          </div>
           <Input
             id="request"
             onChange={(event) => setRequest(event.target.value)}

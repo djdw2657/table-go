@@ -10,6 +10,7 @@ import { keys as observability } from "@repo/observability/keys";
 import { keys as security } from "@repo/security/keys";
 import { keys as webhooks } from "@repo/webhooks/keys";
 import { createEnv } from "@t3-oss/env-nextjs";
+import { z } from "zod";
 
 export const env = createEnv({
   skipValidation: process.env.SKIP_ENV_VALIDATION === "true",
@@ -26,7 +27,13 @@ export const env = createEnv({
     security(),
     webhooks(),
   ],
-  server: {},
+  server: {
+    // Used to import Korean public holidays from Google Calendar's public
+    // "ko.south_korea#holiday@..." calendar (see admin/actions.ts).
+    GOOGLE_CALENDAR_API_KEY: z.string().optional(),
+  },
   client: {},
-  runtimeEnv: {},
+  runtimeEnv: {
+    GOOGLE_CALENDAR_API_KEY: process.env.GOOGLE_CALENDAR_API_KEY,
+  },
 });

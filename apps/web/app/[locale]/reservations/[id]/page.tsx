@@ -43,6 +43,9 @@ const ReservationConfirmationPage = async ({
           <Row label="인원" value={`${reservation.partySize}명`} />
           <Row label="예약자" value={reservation.customerName} />
           <Row label="연락처" value={reservation.customerPhone} />
+          {reservation.customerEmail && (
+            <Row label="이메일" value={reservation.customerEmail} />
+          )}
           {reservation.request && (
             <Row label="요청사항" value={reservation.request} />
           )}
