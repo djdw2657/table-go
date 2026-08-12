@@ -11,28 +11,53 @@ datasource db {
   relationMode = "prisma"
 }
 
-enum TimeSlot {
-  SLOT_10_12
-  SLOT_12_14
-  SLOT_14_16
-  SLOT_16_18
-  SLOT_18_20
-  SLOT_20_22
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
 }
 
-// One row = one team's active reservation for a given date + slot.
-// The @@unique([date, timeSlot]) constraint is what enforces "1 team per slot" -
-// cancelling deletes the row so the slot frees up again.
+// Defines the bookable time slots for a day (e.g. 10:00 - 12:00).
+model TimeSlot {
+  id           String        @id @default(cuid())
+  startTime    String
+  endTime      String
+  displayName  String
+  reservations Reservation[]
+}
+
+// Dates the restaurant is closed regardless of day-of-week (on top of the
+// standing Sat/Sun closure enforced in application code).
+model Holiday {
+  id     String   @id @default(cuid())
+  date   DateTime @db.Date
+  reason String?
+
+  @@unique([date])
+}
+
+// One row = one team's reservation for a given date + slot. A non-cancelled
+// row is "active"; cancelling (status -> CANCELLED) frees the slot back up
+// without deleting the record, so history is preserved.
+//
+// `activeSlotKey` is "{date}_{slotId}" while the reservation is active
+// (PENDING/CONFIRMED) and null once cancelled. Postgres unique constraints
+// treat every null as distinct, so the `@unique` below gives a real DB-level
+// "at most one active reservation per date+slot" guarantee (equivalent to a
+// partial/filtered unique index, which Prisma's schema DSL can't express and
+// which this project provisions declaratively via `prisma db push`).
 model Reservation {
-  id            String   @id @default(cuid())
-  date          DateTime @db.Date
-  timeSlot      TimeSlot
+  id            String            @id @default(cuid())
+  date          DateTime          @db.Date
+  slotId        String
+  timeSlot      TimeSlot          @relation(fields: [slotId], references: [id])
   partySize     Int
   customerName  String
   customerPhone String
   request       String?
-  createdAt     DateTime @default(now())
+  status        ReservationStatus @default(CONFIRMED)
+  activeSlotKey String?           @unique
+  createdAt     DateTime          @default(now())
 
-  @@unique([date, timeSlot])
-  @@index([date])
+  @@index([date, slotId])
 }

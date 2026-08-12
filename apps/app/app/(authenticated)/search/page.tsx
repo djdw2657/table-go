@@ -3,15 +3,6 @@ import { database } from "@repo/database";
 import { notFound, redirect } from "next/navigation";
 import { Header } from "../components/header";
 
-const SLOT_LABELS: Record<string, string> = {
-  SLOT_10_12: "10:00 - 12:00",
-  SLOT_12_14: "12:00 - 14:00",
-  SLOT_14_16: "14:00 - 16:00",
-  SLOT_16_18: "16:00 - 18:00",
-  SLOT_18_20: "18:00 - 20:00",
-  SLOT_20_22: "20:00 - 22:00",
-};
-
 interface SearchPageProperties {
   searchParams: Promise<{
     q: string;
@@ -47,7 +38,8 @@ const SearchPage = async ({ searchParams }: SearchPageProperties) => {
         contains: q,
       },
     },
-    orderBy: [{ date: "asc" }, { timeSlot: "asc" }],
+    include: { timeSlot: true },
+    orderBy: [{ date: "asc" }, { timeSlot: { startTime: "asc" } }],
   });
 
   return (
@@ -68,7 +60,7 @@ const SearchPage = async ({ searchParams }: SearchPageProperties) => {
                 <p className="font-medium">{reservation.customerName}</p>
                 <p className="text-muted-foreground">
                   {reservation.date.toISOString().slice(0, 10)} ·{" "}
-                  {SLOT_LABELS[reservation.timeSlot]}
+                  {reservation.timeSlot.displayName}
                 </p>
                 <p className="text-muted-foreground">
                   {reservation.partySize}명 · {reservation.customerPhone}

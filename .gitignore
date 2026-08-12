@@ -279,3 +279,4 @@ packages/database/generated
 .source
 .vercel
 .env*
+apikey.txt

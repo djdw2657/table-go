@@ -1,22 +1,15 @@
-import type { Reservation } from "@repo/database";
+import type { Reservation, TimeSlot } from "@repo/database";
 import { Button } from "@repo/design-system/components/ui/button";
 import { cancelReservation } from "./actions";
 
-const SLOT_LABELS: Record<string, string> = {
-  SLOT_10_12: "10:00 - 12:00",
-  SLOT_12_14: "12:00 - 14:00",
-  SLOT_14_16: "14:00 - 16:00",
-  SLOT_16_18: "16:00 - 18:00",
-  SLOT_18_20: "18:00 - 20:00",
-  SLOT_20_22: "20:00 - 22:00",
-};
+type ReservationWithSlot = Reservation & { timeSlot: TimeSlot };
 
 interface ReservationsTableProps {
-  reservations: Reservation[];
+  reservations: ReservationWithSlot[];
 }
 
-function groupByDate(reservations: Reservation[]) {
-  const grouped = new Map<string, Reservation[]>();
+function groupByDate(reservations: ReservationWithSlot[]) {
+  const grouped = new Map<string, ReservationWithSlot[]>();
   for (const reservation of reservations) {
     const dateKey = reservation.date.toISOString().slice(0, 10);
     const list = grouped.get(dateKey) ?? [];
@@ -57,7 +50,7 @@ export const ReservationsTable = ({ reservations }: ReservationsTableProps) => {
               <tbody>
                 {dayReservations.map((reservation) => (
                   <tr className="border-t" key={reservation.id}>
-                    <td className="p-3">{SLOT_LABELS[reservation.timeSlot]}</td>
+                    <td className="p-3">{reservation.timeSlot.displayName}</td>
                     <td className="p-3">{reservation.customerName}</td>
                     <td className="p-3">{reservation.customerPhone}</td>
                     <td className="p-3">{reservation.partySize}명</td>

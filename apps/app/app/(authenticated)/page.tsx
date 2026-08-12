@@ -2,6 +2,7 @@ import { database } from "@repo/database";
 import { Button } from "@repo/design-system/components/ui/button";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { env } from "@/env";
 import { Header } from "./components/header";
 
 const title = "테이블GO 관리자";
@@ -25,7 +26,17 @@ const App = async () => {
 
   return (
     <>
-      <Header page="대시보드" pages={["테이블GO"]} />
+      <Header page="대시보드" pages={["테이블GO"]}>
+        <Button asChild className="mr-4" size="sm" variant="outline">
+          <Link
+            href={env.NEXT_PUBLIC_WEB_URL}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            예약 사이트 보기
+          </Link>
+        </Button>
+      </Header>
       <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
         <div className="grid auto-rows-min gap-4 md:grid-cols-2">
           <div className="rounded-xl border p-6">

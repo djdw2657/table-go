@@ -1,5 +1,6 @@
 import { Status } from "@repo/observability/status";
 import Link from "next/link";
+import { env } from "@/env";
 
 export const Footer = () => {
   const navigationItems = [
@@ -20,6 +21,10 @@ export const Footer = () => {
           title: "문의하기",
           href: "/contact",
         },
+        {
+          title: "관리자",
+          href: `${env.NEXT_PUBLIC_APP_URL}/sign-in`,
+        },
       ],
     },
   ];
@@ -32,10 +37,10 @@ export const Footer = () => {
             <div className="flex flex-col items-start gap-8">
               <div className="flex flex-col gap-2">
                 <h2 className="max-w-xl text-left font-regular text-3xl tracking-tighter md:text-5xl">
-                  next-forge
+                  테이블GO
                 </h2>
                 <p className="max-w-lg text-left text-foreground/75 text-lg leading-relaxed tracking-tight">
-                  This is the start of something new.
+                  간편하게 예약하고, 편하게 이용하세요.
                 </p>
               </div>
               <Status />

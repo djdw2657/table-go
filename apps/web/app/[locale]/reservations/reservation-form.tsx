@@ -1,28 +1,47 @@
 "use client";
 
+import type { TimeSlot } from "@repo/database";
 import { Button } from "@repo/design-system/components/ui/button";
 import { Calendar } from "@repo/design-system/components/ui/calendar";
 import { Card, CardContent } from "@repo/design-system/components/ui/card";
 import { Input } from "@repo/design-system/components/ui/input";
 import { Label } from "@repo/design-system/components/ui/label";
+import { cn } from "@repo/design-system/lib/utils";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState, useTransition } from "react";
-import { createReservation, getAvailability } from "./actions";
+import {
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import type { DayButton } from "react-day-picker";
+import {
+  createReservation,
+  getAvailability,
+  getMonthAvailability,
+} from "./actions";
 
-const TIME_SLOTS = [
-  { value: "SLOT_10_12", label: "10:00 - 12:00" },
-  { value: "SLOT_12_14", label: "12:00 - 14:00" },
-  { value: "SLOT_14_16", label: "14:00 - 16:00" },
-  { value: "SLOT_16_18", label: "16:00 - 18:00" },
-  { value: "SLOT_18_20", label: "18:00 - 20:00" },
-  { value: "SLOT_20_22", label: "20:00 - 22:00" },
-] as const;
+interface ReservationFormProps {
+  timeSlots: TimeSlot[];
+}
+
+// How often to re-check the selected date's availability and the visible
+// month's "마감" (fully booked) status. Short enough to feel live, long
+// enough to stay cheap since we only ever query the selected date / month.
+const POLL_INTERVAL_MS = 3000;
 
 function toDateStr(date: Date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function toMonthStr(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
 }
 
 function isWeekend(date: Date) {
@@ -36,19 +55,59 @@ function startOfToday() {
   return now;
 }
 
-export function ReservationForm() {
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function FullDayButton({
+  className,
+  day,
+  modifiers,
+  children,
+  ...props
+}: React.ComponentProps<typeof DayButton>) {
+  return (
+    <Button
+      className={cn(
+        "relative flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-0 font-normal leading-none",
+        className
+      )}
+      size="icon"
+      variant="ghost"
+      {...props}
+    >
+      {children}
+      {modifiers.full && (
+        <span className="text-[9px] text-destructive leading-none">마감</span>
+      )}
+    </Button>
+  );
+}
+
+export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>();
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+  const [bookedSlotIds, setBookedSlotIds] = useState<string[]>([]);
   const [isLoadingAvailability, startAvailabilityTransition] = useTransition();
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const [displayedMonth, setDisplayedMonth] = useState(() =>
+    startOfMonth(new Date())
+  );
+  const [fullDates, setFullDates] = useState<Set<string>>(new Set());
+  const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
 
   const [partySize, setPartySize] = useState(2);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [request, setRequest] = useState("");
+
+  const selectedSlotRef = useRef(selectedSlot);
+  useEffect(() => {
+    selectedSlotRef.current = selectedSlot;
+  }, [selectedSlot]);
 
   const handleSelectDate = (date: Date | undefined) => {
     setSelectedDate(date);
@@ -59,9 +118,74 @@ export function ReservationForm() {
     }
     startAvailabilityTransition(async () => {
       const result = await getAvailability(toDateStr(date));
-      setBookedSlots(result.bookedSlots);
+      setBookedSlotIds(result.bookedSlotIds);
     });
   };
+
+  // Subscribe (via short-interval polling) to the currently selected date's
+  // reservations only, so we never pay the cost of watching every date.
+  useEffect(() => {
+    if (!selectedDate) {
+      return;
+    }
+    const dateStr = toDateStr(selectedDate);
+    let cancelled = false;
+
+    const poll = async () => {
+      const result = await getAvailability(dateStr);
+      if (cancelled) {
+        return;
+      }
+      setBookedSlotIds((previous) => {
+        const wasBooked = new Set(previous);
+        const isNowBooked = new Set(result.bookedSlotIds);
+        const currentSlot = selectedSlotRef.current;
+
+        if (
+          currentSlot &&
+          !wasBooked.has(currentSlot) &&
+          isNowBooked.has(currentSlot)
+        ) {
+          // Someone else (INSERT) just took the slot we had selected.
+          setSelectedSlot(null);
+          setError(
+            "방금 다른 팀이 이 시간대를 예약했습니다. 다른 시간을 선택해주세요."
+          );
+        }
+
+        return result.bookedSlotIds;
+      });
+    };
+
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [selectedDate]);
+
+  // Refresh which dates in the visible month are fully booked ("마감") or
+  // holidays, both on month navigation and on the same short interval.
+  useEffect(() => {
+    const monthStr = toMonthStr(displayedMonth);
+    let cancelled = false;
+
+    const poll = async () => {
+      const result = await getMonthAvailability(monthStr);
+      if (cancelled) {
+        return;
+      }
+      setFullDates(new Set(result.fullDates));
+      setHolidayDates(new Set(result.holidayDates));
+    };
+
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [displayedMonth]);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -77,7 +201,7 @@ export function ReservationForm() {
     startSubmitTransition(async () => {
       const result = await createReservation({
         date: dateStr,
-        timeSlot: selectedSlot,
+        slotId: selectedSlot,
         partySize,
         customerName,
         customerPhone,
@@ -87,7 +211,7 @@ export function ReservationForm() {
       if (!result.success) {
         setError(result.error);
         const refreshed = await getAvailability(dateStr);
-        setBookedSlots(refreshed.bookedSlots);
+        setBookedSlotIds(refreshed.bookedSlotIds);
         return;
       }
 
@@ -100,8 +224,17 @@ export function ReservationForm() {
       <Card className="h-fit">
         <CardContent className="flex justify-center pt-6">
           <Calendar
-            disabled={(date) => isWeekend(date) || date < startOfToday()}
+            components={{ DayButton: FullDayButton }}
+            disabled={(date) =>
+              isWeekend(date) ||
+              date < startOfToday() ||
+              holidayDates.has(toDateStr(date)) ||
+              fullDates.has(toDateStr(date))
+            }
             mode="single"
+            modifiers={{ full: (date) => fullDates.has(toDateStr(date)) }}
+            month={displayedMonth}
+            onMonthChange={setDisplayedMonth}
             onSelect={handleSelectDate}
             selected={selectedDate}
           />
@@ -118,17 +251,17 @@ export function ReservationForm() {
           )}
           {selectedDate && (
             <div className="grid grid-cols-3 gap-2">
-              {TIME_SLOTS.map((slot) => {
-                const isBooked = bookedSlots.includes(slot.value);
+              {timeSlots.map((slot) => {
+                const isBooked = bookedSlotIds.includes(slot.id);
                 return (
                   <Button
                     disabled={isBooked || isLoadingAvailability}
-                    key={slot.value}
-                    onClick={() => setSelectedSlot(slot.value)}
+                    key={slot.id}
+                    onClick={() => setSelectedSlot(slot.id)}
                     type="button"
-                    variant={selectedSlot === slot.value ? "default" : "outline"}
+                    variant={selectedSlot === slot.id ? "default" : "outline"}
                   >
-                    {isBooked ? "마감" : slot.label}
+                    {isBooked ? "마감" : slot.displayName}
                   </Button>
                 );
               })}
