@@ -21,6 +21,7 @@ import {
   getAvailability,
   getMonthAvailability,
 } from "./actions";
+import { RESTAURANT_INFO } from "./restaurant-info";
 import {
   EMAIL_ERROR,
   formatPhoneNumber,
@@ -128,6 +129,7 @@ function FullDayButton({
 
 export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const router = useRouter();
+  const [step, setStep] = useState<"form" | "review">("form");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>();
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [bookedSlotIds, setBookedSlotIds] = useState<string[]>([]);
@@ -188,6 +190,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
     setSelectedDate(date);
     setSelectedSlot(null);
     setError(null);
+    setStep("form");
     if (!date) {
       return;
     }
@@ -223,6 +226,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
         ) {
           // Someone else (INSERT) just took the slot we had selected.
           setSelectedSlot(null);
+          setStep("form");
           setError(
             "방금 다른 팀이 이 시간대를 예약했습니다. 다른 시간을 선택해주세요."
           );
@@ -262,7 +266,8 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
     };
   }, [displayedMonth]);
 
-  const handleSubmit = (event: FormEvent) => {
+  // "예약하기" only moves to the review step — nothing is written yet.
+  const handleReview = (event: FormEvent) => {
     event.preventDefault();
     setError(null);
     setNameTouched(true);
@@ -285,6 +290,17 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
       return;
     }
 
+    setStep("review");
+  };
+
+  const handleEdit = () => {
+    setStep("form");
+  };
+
+  const handleConfirm = () => {
+    if (!(selectedDate && selectedSlot)) {
+      return;
+    }
     const dateStr = toDateStr(selectedDate);
 
     startSubmitTransition(async () => {
@@ -300,6 +316,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
 
       if (!result.success) {
         setError(result.error);
+        setStep("form");
         const refreshed = await getAvailability(dateStr);
         setBookedSlotIds(refreshed.bookedSlotIds);
         return;
@@ -308,6 +325,8 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
       router.push(`/reservations/${result.reservationId}`);
     });
   };
+
+  const selectedTimeSlot = timeSlots.find((slot) => slot.id === selectedSlot);
 
   return (
     <div className="container mx-auto grid max-w-4xl gap-8 pb-24 lg:grid-cols-2">
@@ -331,123 +350,182 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
         </CardContent>
       </Card>
 
-      <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-        <div>
-          <Label className="mb-3 block">시간 선택</Label>
-          {!selectedDate && (
-            <p className="text-muted-foreground text-sm">
-              먼저 날짜를 선택해주세요. (토, 일 휴무)
-            </p>
-          )}
-          {selectedDate && (
-            <div className="grid grid-cols-3 gap-2">
-              {timeSlots.map((slot) => {
-                const isBooked = bookedSlotIds.includes(slot.id);
-                return (
-                  <Button
-                    disabled={isBooked || isLoadingAvailability}
-                    key={slot.id}
-                    onClick={() => setSelectedSlot(slot.id)}
-                    type="button"
-                    variant={selectedSlot === slot.id ? "default" : "outline"}
-                  >
-                    {isBooked ? "마감" : slot.displayName}
-                  </Button>
-                );
-              })}
+      {step === "review" && selectedDate && selectedTimeSlot ? (
+        <Card className="h-fit">
+          <CardContent className="flex flex-col gap-6 pt-6">
+            <h2 className="font-medium text-lg">예약 내용을 확인해주세요</h2>
+
+            <div className="flex flex-col gap-3">
+              <ReviewRow label="날짜" value={toDateStr(selectedDate)} />
+              <ReviewRow label="시간" value={selectedTimeSlot.displayName} />
+              <ReviewRow label="인원" value={`${partySize}명`} />
+              <ReviewRow label="예약자" value={customerName} />
+              <ReviewRow label="연락처" value={customerPhone} />
+              {customerEmail && (
+                <ReviewRow label="이메일" value={customerEmail} />
+              )}
+              {request && <ReviewRow label="요청사항" value={request} />}
             </div>
-          )}
-        </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="partySize">인원</Label>
-          <Input
-            id="partySize"
-            max={20}
-            min={1}
-            onChange={(event) => setPartySize(Number(event.target.value))}
-            required
-            type="number"
-            value={partySize}
-          />
-        </div>
+            <div className="flex flex-col gap-3 border-t pt-4">
+              <p className="font-medium text-sm">{RESTAURANT_INFO.name}</p>
+              <ReviewRow label="주소" value={RESTAURANT_INFO.address} />
+              <ReviewRow label="연락처" value={RESTAURANT_INFO.phone} />
+            </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="customerName">예약자 이름</Label>
-          <Input
-            aria-invalid={Boolean(nameError)}
-            id="customerName"
-            onBlur={() => setNameTouched(true)}
-            onChange={(event) => setCustomerName(event.target.value)}
-            required
-            value={customerName}
-          />
-          {nameError && <p className="text-destructive text-sm">{nameError}</p>}
-        </div>
+            {error && <p className="text-destructive text-sm">{error}</p>}
 
-        <div className="grid gap-2">
-          <Label htmlFor="customerPhone">연락처</Label>
-          <Input
-            aria-invalid={Boolean(phoneError)}
-            id="customerPhone"
-            inputMode="numeric"
-            onBlur={() => setPhoneTouched(true)}
-            onChange={(event) =>
-              setCustomerPhone(formatPhoneNumber(event.target.value))
-            }
-            placeholder="010-1234-5678"
-            required
-            value={customerPhone}
-          />
-          {phoneError && (
-            <p className="text-destructive text-sm">{phoneError}</p>
-          )}
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="customerEmail">이메일 (선택)</Label>
-          <Input
-            aria-invalid={Boolean(emailError)}
-            id="customerEmail"
-            onBlur={() => setEmailTouched(true)}
-            onChange={(event) => setCustomerEmail(event.target.value)}
-            placeholder="name@example.com"
-            type="email"
-            value={customerEmail}
-          />
-          {emailError && (
-            <p className="text-destructive text-sm">{emailError}</p>
-          )}
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="request">요청사항 (선택)</Label>
-          <div className="flex flex-wrap gap-2">
-            {QUICK_REQUESTS.map((tag) => (
+            <div className="flex gap-2">
               <Button
-                key={tag}
-                onClick={() => toggleQuickRequest(tag)}
-                size="sm"
+                className="flex-1"
+                disabled={isSubmitting}
+                onClick={handleEdit}
                 type="button"
-                variant={isRequestTagActive(tag) ? "default" : "outline"}
+                variant="outline"
               >
-                {tag}
+                수정
               </Button>
-            ))}
+              <Button
+                className="flex-1"
+                disabled={isSubmitting}
+                onClick={handleConfirm}
+                type="button"
+              >
+                {isSubmitting ? "예약 중..." : "확인"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <form className="flex flex-col gap-6" onSubmit={handleReview}>
+          <div>
+            <Label className="mb-3 block">시간 선택</Label>
+            {!selectedDate && (
+              <p className="text-muted-foreground text-sm">
+                먼저 날짜를 선택해주세요. (토, 일 휴무)
+              </p>
+            )}
+            {selectedDate && (
+              <div className="grid grid-cols-3 gap-2">
+                {timeSlots.map((slot) => {
+                  const isBooked = bookedSlotIds.includes(slot.id);
+                  return (
+                    <Button
+                      disabled={isBooked || isLoadingAvailability}
+                      key={slot.id}
+                      onClick={() => setSelectedSlot(slot.id)}
+                      type="button"
+                      variant={selectedSlot === slot.id ? "default" : "outline"}
+                    >
+                      {isBooked ? "마감" : slot.displayName}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <Input
-            id="request"
-            onChange={(event) => setRequest(event.target.value)}
-            value={request}
-          />
-        </div>
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
+          <div className="grid gap-2">
+            <Label htmlFor="partySize">인원</Label>
+            <Input
+              id="partySize"
+              max={20}
+              min={1}
+              onChange={(event) => setPartySize(Number(event.target.value))}
+              required
+              type="number"
+              value={partySize}
+            />
+          </div>
 
-        <Button disabled={isSubmitting} size="lg" type="submit">
-          {isSubmitting ? "예약 중..." : "예약하기"}
-        </Button>
-      </form>
+          <div className="grid gap-2">
+            <Label htmlFor="customerName">예약자 이름</Label>
+            <Input
+              aria-invalid={Boolean(nameError)}
+              id="customerName"
+              onBlur={() => setNameTouched(true)}
+              onChange={(event) => setCustomerName(event.target.value)}
+              required
+              value={customerName}
+            />
+            {nameError && (
+              <p className="text-destructive text-sm">{nameError}</p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="customerPhone">연락처</Label>
+            <Input
+              aria-invalid={Boolean(phoneError)}
+              id="customerPhone"
+              inputMode="numeric"
+              onBlur={() => setPhoneTouched(true)}
+              onChange={(event) =>
+                setCustomerPhone(formatPhoneNumber(event.target.value))
+              }
+              placeholder="010-1234-5678"
+              required
+              value={customerPhone}
+            />
+            {phoneError && (
+              <p className="text-destructive text-sm">{phoneError}</p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="customerEmail">이메일 (선택)</Label>
+            <Input
+              aria-invalid={Boolean(emailError)}
+              id="customerEmail"
+              onBlur={() => setEmailTouched(true)}
+              onChange={(event) => setCustomerEmail(event.target.value)}
+              placeholder="name@example.com"
+              type="email"
+              value={customerEmail}
+            />
+            {emailError && (
+              <p className="text-destructive text-sm">{emailError}</p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="request">요청사항 (선택)</Label>
+            <div className="flex flex-wrap gap-2">
+              {QUICK_REQUESTS.map((tag) => (
+                <Button
+                  key={tag}
+                  onClick={() => toggleQuickRequest(tag)}
+                  size="sm"
+                  type="button"
+                  variant={isRequestTagActive(tag) ? "default" : "outline"}
+                >
+                  {tag}
+                </Button>
+              ))}
+            </div>
+            <Input
+              id="request"
+              onChange={(event) => setRequest(event.target.value)}
+              value={request}
+            />
+          </div>
+
+          {error && <p className="text-destructive text-sm">{error}</p>}
+
+          <Button size="lg" type="submit">
+            예약하기
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value}</span>
     </div>
   );
 }

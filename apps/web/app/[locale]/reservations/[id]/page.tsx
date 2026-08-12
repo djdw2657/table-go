@@ -37,7 +37,7 @@ const ReservationConfirmationPage = async ({
       </h1>
       <Card className="mt-8 text-left">
         <CardContent className="space-y-3 pt-6">
-          <Row label="예약번호" value={reservation.id} />
+          <Row label="예약번호" value={reservation.reservationNumber} />
           <Row label="날짜" value={dateLabel} />
           <Row label="시간" value={reservation.timeSlot.displayName} />
           <Row label="인원" value={`${reservation.partySize}명`} />
@@ -51,9 +51,17 @@ const ReservationConfirmationPage = async ({
           )}
         </CardContent>
       </Card>
-      <Button asChild className="mt-8" size="lg">
-        <Link href="/">홈으로</Link>
-      </Button>
+      <div className="mt-8 flex flex-col items-center gap-3">
+        <Button asChild size="lg">
+          <Link href="/">홈으로</Link>
+        </Button>
+        <Link
+          className="text-muted-foreground text-sm underline"
+          href="/check-reservation"
+        >
+          예약 확인/취소/변경하기
+        </Link>
+      </div>
     </div>
   );
 };

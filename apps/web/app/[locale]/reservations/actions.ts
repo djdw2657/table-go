@@ -2,33 +2,24 @@
 
 import { database } from "@repo/database";
 import { revalidatePath } from "next/cache";
+import {
+  buildActiveSlotKey,
+  DUPLICATE_SLOT_ERROR,
+  isClosedDay,
+  isUniqueConstraintError,
+  parseDateOnly,
+  todayDateOnly,
+} from "./reservation-shared";
 import { isValidEmail, isValidName, isValidPhone } from "./validation";
-
-function parseDateOnly(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00.000Z`);
-}
-
-function todayDateOnly() {
-  return parseDateOnly(new Date().toISOString().slice(0, 10));
-}
-
-// Business rule: closed Sat/Sun, plus any date registered in the `holidays`
-// table. The date is a plain calendar date (no time component), so the UTC
-// day-of-week is the same as the KST day-of-week.
-async function isClosedDay(date: Date) {
-  const day = date.getUTCDay();
-  if (day === 0 || day === 6) {
-    return true;
-  }
-  const holiday = await database.holiday.findUnique({ where: { date } });
-  return holiday !== null;
-}
 
 export async function getTimeSlots() {
   return database.timeSlot.findMany({ orderBy: { startTime: "asc" } });
 }
 
-export async function getAvailability(dateStr: string) {
+export async function getAvailability(
+  dateStr: string,
+  excludeReservationId?: string
+) {
   const date = parseDateOnly(dateStr);
 
   if (await isClosedDay(date)) {
@@ -36,7 +27,11 @@ export async function getAvailability(dateStr: string) {
   }
 
   const reservations = await database.reservation.findMany({
-    where: { date, status: { not: "CANCELLED" } },
+    where: {
+      date,
+      status: { not: "CANCELLED" },
+      ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+    },
     select: { slotId: true },
   });
 
@@ -46,7 +41,10 @@ export async function getAvailability(dateStr: string) {
 // month is "YYYY-MM". Returns, for the visible calendar month, which dates
 // have every time slot booked ("마감") and which are holidays, so the
 // calendar can mark them without a per-date round trip.
-export async function getMonthAvailability(month: string) {
+export async function getMonthAvailability(
+  month: string,
+  excludeReservationId?: string
+) {
   const [yearStr, monthStr] = month.split("-");
   const year = Number(yearStr);
   const monthIndex = Number(monthStr) - 1;
@@ -56,7 +54,11 @@ export async function getMonthAvailability(month: string) {
   const [totalSlots, reservations, holidays] = await Promise.all([
     database.timeSlot.count(),
     database.reservation.findMany({
-      where: { date: { gte: start, lt: end }, status: { not: "CANCELLED" } },
+      where: {
+        date: { gte: start, lt: end },
+        status: { not: "CANCELLED" },
+        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+      },
       select: { date: true, slotId: true },
     }),
     database.holiday.findMany({
@@ -96,11 +98,14 @@ export type CreateReservationResult =
   | { success: true; reservationId: string }
   | { success: false; error: string };
 
-const DUPLICATE_SLOT_ERROR =
-  "죄송합니다. 해당 시간은 방금 예약되었습니다. 다른 시간대를 선택해주세요.";
-
-function buildActiveSlotKey(dateStr: string, slotId: string) {
-  return `${dateStr}_${slotId}`;
+// "R-YYYYMMDD-NNN" — NNN is a per-date sequence. There are at most 6 slots
+// a day, so counting existing rows for the date is enough (no separate
+// counter table needed); the reservationNumber unique constraint is the
+// backstop if two requests ever race on the same count.
+async function generateReservationNumber(dateStr: string, date: Date) {
+  const countForDate = await database.reservation.count({ where: { date } });
+  const sequence = String(countForDate + 1).padStart(3, "0");
+  return `R-${dateStr.replaceAll("-", "")}-${sequence}`;
 }
 
 export async function createReservation(
@@ -175,6 +180,7 @@ export async function createReservation(
         customerPhone,
         customerEmail: customerEmail || undefined,
         request: input.request?.trim() || undefined,
+        reservationNumber: await generateReservationNumber(input.date, date),
         // Enforced unique at the DB level (see schema.prisma) so that two
         // requests racing past the check above can't both succeed.
         activeSlotKey: buildActiveSlotKey(input.date, input.slotId),
@@ -183,13 +189,7 @@ export async function createReservation(
     revalidatePath("/reservations");
     return { success: true, reservationId: reservation.id };
   } catch (error) {
-    const isUniqueConstraintError =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "P2002";
-
-    if (isUniqueConstraintError) {
+    if (isUniqueConstraintError(error)) {
       return { success: false, error: DUPLICATE_SLOT_ERROR };
     }
     throw error;

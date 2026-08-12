@@ -1,33 +1,28 @@
-import { database } from "@repo/database";
 import { Button } from "@repo/design-system/components/ui/button";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { env } from "@/env";
 import { Header } from "../components/header";
-import { ImportHolidaysButton } from "./import-holidays-button";
+import { getFilteredReservations, getHolidays } from "./actions";
+import { CalendarSlotPanel } from "./calendar-slot-panel";
+import { HolidayManager } from "./holiday-manager";
 import { ReservationsTable } from "./reservations-table";
 
 export const metadata: Metadata = {
   title: "예약 관리 | 테이블GO",
 };
 
-function todayDateOnly() {
-  return new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-}
-
 const AdminPage = async () => {
-  const today = todayDateOnly();
-  const reservations = await database.reservation.findMany({
-    where: { date: { gte: today }, status: { not: "CANCELLED" } },
-    include: { timeSlot: true },
-    orderBy: [{ date: "asc" }, { timeSlot: { startTime: "asc" } }],
-  });
+  const [reservations, holidays] = await Promise.all([
+    getFilteredReservations(),
+    getHolidays(),
+  ]);
 
   return (
     <>
       <Header page="예약 관리" pages={["테이블GO"]}>
         <div className="mr-4 flex items-center gap-2">
-          <ImportHolidaysButton />
+          <HolidayManager initialHolidays={holidays} />
           <Button asChild size="sm" variant="outline">
             <Link
               href={env.NEXT_PUBLIC_WEB_URL}
@@ -39,8 +34,9 @@ const AdminPage = async () => {
           </Button>
         </div>
       </Header>
-      <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-        <ReservationsTable reservations={reservations} />
+      <div className="flex flex-1 flex-col gap-6 p-4 pt-0">
+        <CalendarSlotPanel />
+        <ReservationsTable initialReservations={reservations} />
       </div>
     </>
   );

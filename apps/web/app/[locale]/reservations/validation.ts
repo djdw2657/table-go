@@ -20,6 +20,10 @@ export function isValidEmail(email: string) {
   return trimmed === "" || EMAIL_PATTERN.test(trimmed);
 }
 
+export function normalizePhoneDigits(phone: string) {
+  return phone.replace(/\D/g, "");
+}
+
 export function formatPhoneNumber(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 3) {

@@ -4,14 +4,127 @@ import { database } from "@repo/database";
 import { revalidatePath } from "next/cache";
 import { env } from "@/env";
 
-export async function cancelReservation(id: string) {
+// `date` columns store UTC-midnight standing in for a KST calendar date, so
+// "today" must be today's KST date — not the UTC date, which is still
+// "yesterday" for the first 9 hours of each KST day.
+function todayDateOnly() {
+  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return new Date(`${kstNow.toISOString().slice(0, 10)}T00:00:00.000Z`);
+}
+
+export interface SlotStatus {
+  booked: boolean;
+  displayName: string;
+  id: string;
+  reservation: {
+    customerName: string;
+    customerPhone: string;
+    id: string;
+    partySize: number;
+    request: string | null;
+    reservationNumber: string;
+    status: string;
+  } | null;
+  startTime: string;
+}
+
+export async function getSlotStatusForDate(
+  dateStr: string
+): Promise<SlotStatus[]> {
+  const date = new Date(`${dateStr}T00:00:00.000Z`);
+  const [slots, reservations] = await Promise.all([
+    database.timeSlot.findMany({ orderBy: { startTime: "asc" } }),
+    database.reservation.findMany({
+      where: { date, status: { not: "CANCELLED" } },
+    }),
+  ]);
+
+  const reservationBySlot = new Map(reservations.map((r) => [r.slotId, r]));
+
+  return slots.map((slot) => {
+    const reservation = reservationBySlot.get(slot.id) ?? null;
+    return {
+      booked: Boolean(reservation),
+      displayName: slot.displayName,
+      id: slot.id,
+      reservation: reservation
+        ? {
+            customerName: reservation.customerName,
+            customerPhone: reservation.customerPhone,
+            id: reservation.id,
+            partySize: reservation.partySize,
+            request: reservation.request,
+            reservationNumber: reservation.reservationNumber,
+            status: reservation.status,
+          }
+        : null,
+      startTime: slot.startTime,
+    };
+  });
+}
+
+export interface ReservationFilters {
+  endDate?: string;
+  sortOrder?: "asc" | "desc";
+  startDate?: string;
+  status?: "ALL" | "PENDING" | "CONFIRMED" | "CANCELLED";
+}
+
+export async function getFilteredReservations(
+  filters: ReservationFilters = {}
+) {
+  const startDate = filters.startDate
+    ? new Date(`${filters.startDate}T00:00:00.000Z`)
+    : todayDateOnly();
+  const endDate = filters.endDate
+    ? new Date(`${filters.endDate}T00:00:00.000Z`)
+    : null;
+
+  return database.reservation.findMany({
+    where: {
+      date: endDate ? { gte: startDate, lte: endDate } : { gte: startDate },
+      ...(filters.status && filters.status !== "ALL"
+        ? { status: filters.status }
+        : {}),
+    },
+    include: { timeSlot: true },
+    orderBy: [
+      { date: filters.sortOrder ?? "asc" },
+      { timeSlot: { startTime: "asc" } },
+    ],
+  });
+}
+
+export type UpdateReservationStatusResult =
+  | { success: true }
+  | { success: false; error: string };
+
+export async function updateReservationStatus(input: {
+  cancelReason?: string;
+  id: string;
+  status: "CONFIRMED" | "CANCELLED";
+}): Promise<UpdateReservationStatusResult> {
+  const existing = await database.reservation.findUnique({
+    where: { id: input.id },
+  });
+  if (!existing) {
+    return { success: false, error: "예약을 찾을 수 없습니다." };
+  }
+
   await database.reservation.update({
-    where: { id },
-    // Clearing activeSlotKey frees the (date, slotId) unique key back up so
-    // the slot can be rebooked (see schema.prisma for why this field exists).
-    data: { status: "CANCELLED", activeSlotKey: null },
+    where: { id: input.id },
+    data:
+      input.status === "CANCELLED"
+        ? {
+            status: "CANCELLED",
+            cancelReason: input.cancelReason?.trim() || null,
+            // Frees the slot back up (see schema.prisma for why this exists).
+            activeSlotKey: null,
+          }
+        : { status: "CONFIRMED" },
   });
   revalidatePath("/admin");
+  return { success: true };
 }
 
 // Google's public "Holidays in South Korea" calendar — readable with just an
@@ -66,6 +179,7 @@ export async function importHolidays(
     };
   }
 
+  const today = todayDateOnly();
   const holidays = (data.items ?? [])
     .filter((item): item is GoogleCalendarEvent & { start: { date: string } } =>
       Boolean(item.start?.date)
@@ -73,7 +187,8 @@ export async function importHolidays(
     .map((item) => ({
       date: new Date(`${item.start.date}T00:00:00.000Z`),
       reason: item.summary ?? null,
-    }));
+    }))
+    .filter((holiday) => holiday.date.getTime() >= today.getTime());
 
   let imported = 0;
   let skipped = 0;
@@ -95,4 +210,13 @@ export async function importHolidays(
   revalidatePath("/admin");
 
   return { success: true, imported, skipped };
+}
+
+export async function getHolidays() {
+  return database.holiday.findMany({ orderBy: { date: "asc" } });
+}
+
+export async function deleteHolidays(ids: string[]) {
+  await database.holiday.deleteMany({ where: { id: { in: ids } } });
+  revalidatePath("/admin");
 }

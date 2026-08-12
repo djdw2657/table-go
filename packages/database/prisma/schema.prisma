@@ -47,18 +47,23 @@ model Holiday {
 // partial/filtered unique index, which Prisma's schema DSL can't express and
 // which this project provisions declaratively via `prisma db push`).
 model Reservation {
-  id            String            @id @default(cuid())
-  date          DateTime          @db.Date
-  slotId        String
-  timeSlot      TimeSlot          @relation(fields: [slotId], references: [id])
-  partySize     Int
-  customerName  String
-  customerPhone String
-  customerEmail String?
-  request       String?
-  status        ReservationStatus @default(CONFIRMED)
-  activeSlotKey String?           @unique
-  createdAt     DateTime          @default(now())
+  id                String            @id @default(cuid())
+  // Human-readable booking code shown to staff/customers, e.g.
+  // "R-20260817-001" (date + daily sequence). Distinct from `id`, which
+  // stays the opaque primary key used in URLs and lookups.
+  reservationNumber String            @unique
+  date              DateTime          @db.Date
+  slotId            String
+  timeSlot          TimeSlot          @relation(fields: [slotId], references: [id])
+  partySize         Int
+  customerName      String
+  customerPhone     String
+  customerEmail     String?
+  request           String?
+  status            ReservationStatus @default(CONFIRMED)
+  cancelReason      String?
+  activeSlotKey     String?           @unique
+  createdAt         DateTime          @default(now())
 
   @@index([date, slotId])
 }
