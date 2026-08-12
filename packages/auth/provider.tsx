@@ -49,10 +49,11 @@ export const AuthProvider = ({
     helpPageUrl: helpUrl,
   };
 
-  return (
-    <ClerkProvider
-      {...properties}
-      appearance={{ layout, baseTheme, elements, variables }}
-    />
-  );
+  // Assigned to a variable (rather than passed as an inline object literal)
+  // so TypeScript's excess-property check doesn't reject `layout`: the
+  // installed @clerk/nextjs's default Ui-flavored Appearance type doesn't
+  // declare it, even though it's a documented, still-supported Theme field.
+  const appearance = { layout, baseTheme, elements, variables };
+
+  return <ClerkProvider {...properties} appearance={appearance} />;
 };
