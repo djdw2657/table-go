@@ -1,0 +1,38 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+enum TimeSlot {
+  SLOT_10_12
+  SLOT_12_14
+  SLOT_14_16
+  SLOT_16_18
+  SLOT_18_20
+  SLOT_20_22
+}
+
+// One row = one team's active reservation for a given date + slot.
+// The @@unique([date, timeSlot]) constraint is what enforces "1 team per slot" -
+// cancelling deletes the row so the slot frees up again.
+model Reservation {
+  id            String   @id @default(cuid())
+  date          DateTime @db.Date
+  timeSlot      TimeSlot
+  partySize     Int
+  customerName  String
+  customerPhone String
+  request       String?
+  createdAt     DateTime @default(now())
+
+  @@unique([date, timeSlot])
+  @@index([date])
+}

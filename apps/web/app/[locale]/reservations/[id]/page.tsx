@@ -1,0 +1,66 @@
+import { database } from "@repo/database";
+import { Button } from "@repo/design-system/components/ui/button";
+import { Card, CardContent } from "@repo/design-system/components/ui/card";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+const SLOT_LABELS: Record<string, string> = {
+  SLOT_10_12: "10:00 - 12:00",
+  SLOT_12_14: "12:00 - 14:00",
+  SLOT_14_16: "14:00 - 16:00",
+  SLOT_16_18: "16:00 - 18:00",
+  SLOT_18_20: "18:00 - 20:00",
+  SLOT_20_22: "20:00 - 22:00",
+};
+
+interface ReservationConfirmationPageProps {
+  params: Promise<{ id: string; locale: string }>;
+}
+
+const Row = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex justify-between border-b pb-2 text-sm last:border-b-0 last:pb-0">
+    <span className="text-muted-foreground">{label}</span>
+    <span className="font-medium">{value}</span>
+  </div>
+);
+
+const ReservationConfirmationPage = async ({
+  params,
+}: ReservationConfirmationPageProps) => {
+  const { id } = await params;
+  const reservation = await database.reservation.findUnique({
+    where: { id },
+  });
+
+  if (!reservation) {
+    notFound();
+  }
+
+  const dateLabel = reservation.date.toISOString().slice(0, 10);
+
+  return (
+    <div className="container mx-auto max-w-md py-24 text-center">
+      <h1 className="font-regular text-3xl tracking-tighter">
+        예약이 완료되었습니다
+      </h1>
+      <Card className="mt-8 text-left">
+        <CardContent className="space-y-3 pt-6">
+          <Row label="예약번호" value={reservation.id} />
+          <Row label="날짜" value={dateLabel} />
+          <Row label="시간" value={SLOT_LABELS[reservation.timeSlot]} />
+          <Row label="인원" value={`${reservation.partySize}명`} />
+          <Row label="예약자" value={reservation.customerName} />
+          <Row label="연락처" value={reservation.customerPhone} />
+          {reservation.request && (
+            <Row label="요청사항" value={reservation.request} />
+          )}
+        </CardContent>
+      </Card>
+      <Button asChild className="mt-8" size="lg">
+        <Link href="/">홈으로</Link>
+      </Button>
+    </div>
+  );
+};
+
+export default ReservationConfirmationPage;
