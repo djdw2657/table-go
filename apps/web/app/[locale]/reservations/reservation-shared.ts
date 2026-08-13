@@ -30,11 +30,11 @@ export async function isClosedDay(date: Date) {
 }
 
 export const DUPLICATE_SLOT_ERROR =
-  "죄송합니다. 해당 시간은 방금 예약되었습니다. 다른 시간대를 선택해주세요.";
+  "죄송합니다. 해당 시간대는 예약이 마감되었습니다(3팀 예약 완료). 다른 시간대를 선택해주세요.";
 
-export function buildActiveSlotKey(dateStr: string, slotId: string) {
-  return `${dateStr}_${slotId}`;
-}
+// How many teams can share a single date+slot. Fixed for every slot — there's
+// no per-slot admin configuration for this.
+export const SLOT_CAPACITY = 3;
 
 export function isUniqueConstraintError(error: unknown) {
   return (
@@ -43,4 +43,44 @@ export function isUniqueConstraintError(error: unknown) {
     "code" in error &&
     (error as { code?: string }).code === "P2002"
   );
+}
+
+// Assigns a 1-based `teamSlotIndex` seat (1..SLOT_CAPACITY) and runs `assign`
+// with it — used for both creating a new reservation and moving an existing
+// one to a new date+slot. Re-counts and retries on a unique-constraint race
+// (two requests grabbing the same seat number concurrently) rather than
+// failing outright, since a retry can still land a free seat as long as
+// capacity hasn't actually been reached. `excludeReservationId` is for the
+// "moving my own reservation" case, so the row doesn't count against itself.
+const MAX_SEAT_ASSIGN_ATTEMPTS = SLOT_CAPACITY + 1;
+
+export async function withSeatAssignment<T>(
+  date: Date,
+  slotId: string,
+  excludeReservationId: string | undefined,
+  assign: (teamSlotIndex: number) => Promise<T>
+): Promise<{ result: T; success: true } | { success: false }> {
+  for (let attempt = 0; attempt < MAX_SEAT_ASSIGN_ATTEMPTS; attempt++) {
+    const count = await database.reservation.count({
+      where: {
+        date,
+        slotId,
+        status: { not: "CANCELLED" },
+        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+      },
+    });
+    if (count >= SLOT_CAPACITY) {
+      return { success: false };
+    }
+    try {
+      const result = await assign(count + 1);
+      return { result, success: true };
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { success: false };
 }

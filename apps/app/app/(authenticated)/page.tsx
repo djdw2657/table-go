@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { env } from "@/env";
 import { Header } from "./components/header";
+import { Statistics } from "./components/statistics";
 import { WeeklySummary } from "./components/weekly-summary";
 
 const title = "테이블GO 관리자";
@@ -61,6 +62,7 @@ const App = async () => {
         <Button asChild className="w-fit">
           <Link href="/admin">예약 관리로 이동</Link>
         </Button>
+        <Statistics />
       </div>
     </>
   );

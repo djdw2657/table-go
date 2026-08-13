@@ -18,6 +18,7 @@ import {
   createReservation,
   getAvailability,
   getMonthAvailability,
+  type SlotAvailability,
 } from "./actions";
 import { FullDayButton } from "./full-day-button";
 import { RESTAURANT_INFO } from "./restaurant-info";
@@ -82,7 +83,9 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const [step, setStep] = useState<"form" | "review">("form");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>();
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [bookedSlotIds, setBookedSlotIds] = useState<string[]>([]);
+  const [slotAvailability, setSlotAvailability] = useState<SlotAvailability[]>(
+    []
+  );
   const [isLoadingAvailability, startAvailabilityTransition] = useTransition();
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +149,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
     }
     startAvailabilityTransition(async () => {
       const result = await getAvailability(toDateStr(date));
-      setBookedSlotIds(result.bookedSlotIds);
+      setSlotAvailability(result.slotAvailability);
     });
   };
 
@@ -164,25 +167,25 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
       if (cancelled) {
         return;
       }
-      setBookedSlotIds((previous) => {
-        const wasBooked = new Set(previous);
-        const isNowBooked = new Set(result.bookedSlotIds);
+      setSlotAvailability((previous) => {
+        const wasFull = new Set(
+          previous.filter((slot) => slot.remaining <= 0).map((s) => s.slotId)
+        );
         const currentSlot = selectedSlotRef.current;
+        const nowFull = result.slotAvailability.find(
+          (slot) => slot.slotId === currentSlot && slot.remaining <= 0
+        );
 
-        if (
-          currentSlot &&
-          !wasBooked.has(currentSlot) &&
-          isNowBooked.has(currentSlot)
-        ) {
-          // Someone else (INSERT) just took the slot we had selected.
+        if (currentSlot && nowFull && !wasFull.has(currentSlot)) {
+          // Someone else's booking just filled the slot we had selected.
           setSelectedSlot(null);
           setStep("form");
           setError(
-            "방금 다른 팀이 이 시간대를 예약했습니다. 다른 시간을 선택해주세요."
+            "방금 다른 팀이 이 시간대의 마지막 자리를 예약했습니다. 다른 시간을 선택해주세요."
           );
         }
 
-        return result.bookedSlotIds;
+        return result.slotAvailability;
       });
     };
 
@@ -268,7 +271,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
         setError(result.error);
         setStep("form");
         const refreshed = await getAvailability(dateStr);
-        setBookedSlotIds(refreshed.bookedSlotIds);
+        setSlotAvailability(refreshed.slotAvailability);
         return;
       }
 
@@ -361,10 +364,10 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
             )}
             {selectedDate && (
               <TimeSlotGrid
-                bookedSlotIds={bookedSlotIds}
                 disabled={isLoadingAvailability}
                 onSelect={setSelectedSlot}
                 selectedSlot={selectedSlot}
+                slotAvailability={slotAvailability}
                 timeSlots={timeSlots}
               />
             )}

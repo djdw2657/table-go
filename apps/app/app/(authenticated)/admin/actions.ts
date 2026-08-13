@@ -12,11 +12,16 @@ function todayDateOnly() {
   return new Date(`${kstNow.toISOString().slice(0, 10)}T00:00:00.000Z`);
 }
 
+// Must match SLOT_CAPACITY in apps/web/app/[locale]/reservations/reservation-shared.ts
+// (the two apps don't share a package for this — same constant, kept in sync
+// by hand since it's a single fixed number, not per-slot configurable).
+const SLOT_CAPACITY = 3;
+
 export interface SlotStatus {
-  booked: boolean;
   displayName: string;
   id: string;
-  reservation: {
+  remaining: number;
+  reservations: {
     customerName: string;
     customerPhone: string;
     id: string;
@@ -24,7 +29,7 @@ export interface SlotStatus {
     request: string | null;
     reservationNumber: string;
     status: string;
-  } | null;
+  }[];
   startTime: string;
 }
 
@@ -39,25 +44,28 @@ export async function getSlotStatusForDate(
     }),
   ]);
 
-  const reservationBySlot = new Map(reservations.map((r) => [r.slotId, r]));
+  const reservationsBySlot = new Map<string, typeof reservations>();
+  for (const reservation of reservations) {
+    const existing = reservationsBySlot.get(reservation.slotId) ?? [];
+    existing.push(reservation);
+    reservationsBySlot.set(reservation.slotId, existing);
+  }
 
   return slots.map((slot) => {
-    const reservation = reservationBySlot.get(slot.id) ?? null;
+    const slotReservations = reservationsBySlot.get(slot.id) ?? [];
     return {
-      booked: Boolean(reservation),
       displayName: slot.displayName,
       id: slot.id,
-      reservation: reservation
-        ? {
-            customerName: reservation.customerName,
-            customerPhone: reservation.customerPhone,
-            id: reservation.id,
-            partySize: reservation.partySize,
-            request: reservation.request,
-            reservationNumber: reservation.reservationNumber,
-            status: reservation.status,
-          }
-        : null,
+      remaining: Math.max(0, SLOT_CAPACITY - slotReservations.length),
+      reservations: slotReservations.map((reservation) => ({
+        customerName: reservation.customerName,
+        customerPhone: reservation.customerPhone,
+        id: reservation.id,
+        partySize: reservation.partySize,
+        request: reservation.request,
+        reservationNumber: reservation.reservationNumber,
+        status: reservation.status,
+      })),
       startTime: slot.startTime,
     };
   });
@@ -118,8 +126,8 @@ export async function updateReservationStatus(input: {
         ? {
             status: "CANCELLED",
             cancelReason: input.cancelReason?.trim() || null,
-            // Frees the slot back up (see schema.prisma for why this exists).
-            activeSlotKey: null,
+            // Frees the seat back up (see schema.prisma for why this exists).
+            teamSlotIndex: null,
           }
         : { status: "CONFIRMED" },
   });

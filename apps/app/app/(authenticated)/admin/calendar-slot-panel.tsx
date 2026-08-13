@@ -13,6 +13,16 @@ function toDateStr(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
+function slotToneClassName(slot: SlotStatus) {
+  if (slot.remaining <= 0) {
+    return "border-blue-500/50 bg-blue-500/15 text-blue-600 dark:text-blue-400";
+  }
+  if (slot.reservations.length > 0) {
+    return "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  }
+  return "border-muted bg-muted/50 text-muted-foreground";
+}
+
 export function CalendarSlotPanel() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date()
@@ -61,10 +71,8 @@ export function CalendarSlotPanel() {
             {slots.map((slot) => (
               <button
                 className={cn(
-                  "rounded-md border px-2 py-3 text-center text-sm transition-colors",
-                  slot.booked
-                    ? "border-blue-500/50 bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                    : "border-muted bg-muted/50 text-muted-foreground",
+                  "flex flex-col items-center gap-0.5 rounded-md border px-2 py-3 text-center text-sm transition-colors",
+                  slotToneClassName(slot),
                   selectedSlotId === slot.id && "ring-2 ring-primary"
                 )}
                 key={slot.id}
@@ -75,29 +83,39 @@ export function CalendarSlotPanel() {
                 }
                 type="button"
               >
-                {slot.displayName}
+                <span>{slot.displayName}</span>
+                <span className="text-xs opacity-80">
+                  {slot.reservations.length}/3팀
+                </span>
               </button>
             ))}
           </div>
 
           {selectedSlot && (
-            <div className="rounded-md border p-3 text-sm">
-              {selectedSlot.reservation ? (
-                <div className="flex flex-col gap-1">
-                  <p className="font-medium">
-                    {selectedSlot.reservation.reservationNumber}
-                  </p>
-                  <p>
-                    {selectedSlot.reservation.customerName} ·{" "}
-                    {selectedSlot.reservation.customerPhone} ·{" "}
-                    {selectedSlot.reservation.partySize}명
-                  </p>
-                  {selectedSlot.reservation.request && (
-                    <p className="text-muted-foreground">
-                      요청사항: {selectedSlot.reservation.request}
+            <div className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+              {selectedSlot.reservations.length > 0 ? (
+                selectedSlot.reservations.map((reservation, index) => (
+                  <div
+                    className={cn(
+                      "flex flex-col gap-1",
+                      index > 0 && "border-t pt-2"
+                    )}
+                    key={reservation.id}
+                  >
+                    <p className="font-medium">
+                      {reservation.reservationNumber}
                     </p>
-                  )}
-                </div>
+                    <p>
+                      {reservation.customerName} · {reservation.customerPhone} ·{" "}
+                      {reservation.partySize}명
+                    </p>
+                    {reservation.request && (
+                      <p className="text-muted-foreground">
+                        요청사항: {reservation.request}
+                      </p>
+                    )}
+                  </div>
+                ))
               ) : (
                 <p className="text-muted-foreground">
                   이 시간대는 예약이 없습니다.

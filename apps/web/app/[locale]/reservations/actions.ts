@@ -1,19 +1,101 @@
 "use server";
 
 import { database } from "@repo/database";
+import { resend } from "@repo/email";
+import { ReservationConfirmationEmail } from "@repo/email/templates/reservation-confirmation";
+import { ReservationNotificationEmail } from "@repo/email/templates/reservation-notification";
 import { revalidatePath } from "next/cache";
+import { env } from "@/env";
 import {
-  buildActiveSlotKey,
   DUPLICATE_SLOT_ERROR,
   isClosedDay,
-  isUniqueConstraintError,
   parseDateOnly,
+  SLOT_CAPACITY,
   todayDateOnly,
+  withSeatAssignment,
 } from "./reservation-shared";
+import { RESTAURANT_INFO } from "./restaurant-info";
 import { isValidEmail, isValidName, isValidPhone } from "./validation";
+
+// Best-effort — a customer's booking should still succeed even if Resend is
+// unreachable or RESEND_TOKEN isn't configured (e.g. local dev without a
+// key). Errors are logged, never thrown back to the caller.
+async function sendReservationEmails(input: {
+  customerEmail?: string;
+  customerName: string;
+  customerPhone: string;
+  date: string;
+  partySize: number;
+  request?: string;
+  reservationNumber: string;
+  timeRange: string;
+}) {
+  if (!resend) {
+    return;
+  }
+
+  const manageUrl = `${env.NEXT_PUBLIC_WEB_URL}/check-reservation`;
+  const adminUrl = env.NEXT_PUBLIC_APP_URL;
+
+  const sends: Promise<unknown>[] = [];
+
+  if (input.customerEmail) {
+    sends.push(
+      resend.emails.send({
+        from: env.RESEND_FROM ?? "onboarding@resend.dev",
+        react: ReservationConfirmationEmail({
+          customerName: input.customerName,
+          date: input.date,
+          manageUrl,
+          partySize: input.partySize,
+          reservationNumber: input.reservationNumber,
+          restaurantAddress: RESTAURANT_INFO.address,
+          restaurantName: RESTAURANT_INFO.name,
+          restaurantPhone: RESTAURANT_INFO.phone,
+          timeRange: input.timeRange,
+        }),
+        subject: "[테이블GO] 예약 확정",
+        to: input.customerEmail,
+      })
+    );
+  }
+
+  if (env.RESTAURANT_NOTIFICATION_EMAIL) {
+    sends.push(
+      resend.emails.send({
+        from: env.RESEND_FROM ?? "onboarding@resend.dev",
+        react: ReservationNotificationEmail({
+          adminUrl,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+          date: input.date,
+          partySize: input.partySize,
+          request: input.request ?? null,
+          reservationNumber: input.reservationNumber,
+          restaurantName: RESTAURANT_INFO.name,
+          timeRange: input.timeRange,
+        }),
+        subject: "새 예약 1건",
+        to: env.RESTAURANT_NOTIFICATION_EMAIL,
+      })
+    );
+  }
+
+  const results = await Promise.allSettled(sends);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Failed to send reservation email:", result.reason);
+    }
+  }
+}
 
 export async function getTimeSlots() {
   return database.timeSlot.findMany({ orderBy: { startTime: "asc" } });
+}
+
+export interface SlotAvailability {
+  remaining: number;
+  slotId: string;
 }
 
 export async function getAvailability(
@@ -23,24 +105,40 @@ export async function getAvailability(
   const date = parseDateOnly(dateStr);
 
   if (await isClosedDay(date)) {
-    return { closed: true, bookedSlotIds: [] as string[] };
+    return { closed: true, slotAvailability: [] as SlotAvailability[] };
   }
 
-  const reservations = await database.reservation.findMany({
-    where: {
-      date,
-      status: { not: "CANCELLED" },
-      ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
-    },
-    select: { slotId: true },
-  });
+  const [slots, reservations] = await Promise.all([
+    database.timeSlot.findMany({ select: { id: true } }),
+    database.reservation.findMany({
+      where: {
+        date,
+        status: { not: "CANCELLED" },
+        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+      },
+      select: { slotId: true },
+    }),
+  ]);
 
-  return { closed: false, bookedSlotIds: reservations.map((r) => r.slotId) };
+  const countBySlot = new Map<string, number>();
+  for (const reservation of reservations) {
+    countBySlot.set(
+      reservation.slotId,
+      (countBySlot.get(reservation.slotId) ?? 0) + 1
+    );
+  }
+
+  const slotAvailability = slots.map((slot) => ({
+    remaining: Math.max(0, SLOT_CAPACITY - (countBySlot.get(slot.id) ?? 0)),
+    slotId: slot.id,
+  }));
+
+  return { closed: false, slotAvailability };
 }
 
 // month is "YYYY-MM". Returns, for the visible calendar month, which dates
-// have every time slot booked ("마감") and which are holidays, so the
-// calendar can mark them without a per-date round trip.
+// have every time slot at full capacity ("마감") and which are holidays, so
+// the calendar can mark them without a per-date round trip.
 export async function getMonthAvailability(
   month: string,
   excludeReservationId?: string
@@ -67,16 +165,21 @@ export async function getMonthAvailability(
     }),
   ]);
 
-  const bookedSlotsByDate = new Map<string, Set<string>>();
+  const countsByDate = new Map<string, Map<string, number>>();
   for (const reservation of reservations) {
     const key = reservation.date.toISOString().slice(0, 10);
-    const slotIds = bookedSlotsByDate.get(key) ?? new Set<string>();
-    slotIds.add(reservation.slotId);
-    bookedSlotsByDate.set(key, slotIds);
+    const bySlot = countsByDate.get(key) ?? new Map<string, number>();
+    bySlot.set(reservation.slotId, (bySlot.get(reservation.slotId) ?? 0) + 1);
+    countsByDate.set(key, bySlot);
   }
 
-  const fullDates = [...bookedSlotsByDate.entries()]
-    .filter(([, slotIds]) => totalSlots > 0 && slotIds.size >= totalSlots)
+  const fullDates = [...countsByDate.entries()]
+    .filter(([, bySlot]) => {
+      if (totalSlots === 0 || bySlot.size < totalSlots) {
+        return false;
+      }
+      return [...bySlot.values()].every((count) => count >= SLOT_CAPACITY);
+    })
     .map(([dateStr]) => dateStr);
 
   const holidayDates = holidays.map((h) => h.date.toISOString().slice(0, 10));
@@ -159,39 +262,47 @@ export async function createReservation(
     return { success: false, error: "인원 수를 확인해주세요 (1~20명)." };
   }
 
-  // Re-check availability on the server right before writing — the client
-  // may be looking at availability that's a few seconds stale (see the
-  // polling in reservation-form.tsx).
-  const alreadyBooked = await database.reservation.findFirst({
-    where: { date, slotId: input.slotId, status: { not: "CANCELLED" } },
-    select: { id: true },
-  });
-  if (alreadyBooked) {
+  // Re-checks capacity on the server right before writing — the client may
+  // be looking at availability that's a few seconds stale (see the polling
+  // in reservation-form.tsx) — and assigns a teamSlotIndex seat, retrying on
+  // a concurrent-request race. The `@@unique([date, slotId, teamSlotIndex])`
+  // constraint (see schema.prisma) is the actual backstop if two requests
+  // still race past this.
+  const outcome = await withSeatAssignment(
+    date,
+    input.slotId,
+    undefined,
+    async (teamSlotIndex) =>
+      database.reservation.create({
+        data: {
+          date,
+          slotId: input.slotId,
+          partySize: input.partySize,
+          customerName,
+          customerPhone,
+          customerEmail: customerEmail || undefined,
+          request: input.request?.trim() || undefined,
+          reservationNumber: await generateReservationNumber(input.date, date),
+          teamSlotIndex,
+        },
+      })
+  );
+
+  if (!outcome.success) {
     return { success: false, error: DUPLICATE_SLOT_ERROR };
   }
+  revalidatePath("/reservations");
 
-  try {
-    const reservation = await database.reservation.create({
-      data: {
-        date,
-        slotId: input.slotId,
-        partySize: input.partySize,
-        customerName,
-        customerPhone,
-        customerEmail: customerEmail || undefined,
-        request: input.request?.trim() || undefined,
-        reservationNumber: await generateReservationNumber(input.date, date),
-        // Enforced unique at the DB level (see schema.prisma) so that two
-        // requests racing past the check above can't both succeed.
-        activeSlotKey: buildActiveSlotKey(input.date, input.slotId),
-      },
-    });
-    revalidatePath("/reservations");
-    return { success: true, reservationId: reservation.id };
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return { success: false, error: DUPLICATE_SLOT_ERROR };
-    }
-    throw error;
-  }
+  await sendReservationEmails({
+    customerEmail,
+    customerName,
+    customerPhone,
+    date: input.date,
+    partySize: input.partySize,
+    request: input.request,
+    reservationNumber: outcome.result.reservationNumber,
+    timeRange: slot.displayName,
+  });
+
+  return { success: true, reservationId: outcome.result.id };
 }

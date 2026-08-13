@@ -2,12 +2,11 @@
 
 import { database } from "@repo/database";
 import {
-  buildActiveSlotKey,
   DUPLICATE_SLOT_ERROR,
   isClosedDay,
-  isUniqueConstraintError,
   parseDateOnly,
   todayDateOnly,
+  withSeatAssignment,
 } from "../reservations/reservation-shared";
 import { isWithinEditWindow } from "../reservations/reservation-time";
 import { normalizePhoneDigits } from "../reservations/validation";
@@ -115,7 +114,7 @@ export async function cancelReservationByCustomer(input: {
 
   await database.reservation.update({
     where: { id: reservation.id },
-    data: { status: "CANCELLED", activeSlotKey: null },
+    data: { status: "CANCELLED", teamSlotIndex: null },
   });
   return { success: true };
 }
@@ -176,39 +175,36 @@ export async function updateReservationByCustomer(
     input.date !== reservation.date.toISOString().slice(0, 10) ||
     input.slotId !== reservation.slotId;
 
+  // undefined would mean "leave unchanged" on an update — null is required
+  // to actually clear a previously-set request.
+  const request = input.request?.trim() || null;
+
   if (slotChanged) {
-    const conflict = await database.reservation.findFirst({
-      where: {
-        date: newDate,
-        slotId: input.slotId,
-        status: { not: "CANCELLED" },
-        id: { not: reservation.id },
-      },
-      select: { id: true },
-    });
-    if (conflict) {
+    const outcome = await withSeatAssignment(
+      newDate,
+      input.slotId,
+      reservation.id,
+      (teamSlotIndex) =>
+        database.reservation.update({
+          where: { id: reservation.id },
+          data: {
+            date: newDate,
+            partySize: input.partySize,
+            request,
+            slotId: input.slotId,
+            teamSlotIndex,
+          },
+        })
+    );
+    if (!outcome.success) {
       return { success: false, error: DUPLICATE_SLOT_ERROR };
     }
+    return { success: true };
   }
 
-  try {
-    await database.reservation.update({
-      where: { id: reservation.id },
-      data: {
-        date: newDate,
-        slotId: input.slotId,
-        partySize: input.partySize,
-        // undefined would mean "leave unchanged" on an update — null is
-        // required to actually clear a previously-set request.
-        request: input.request?.trim() || null,
-        activeSlotKey: buildActiveSlotKey(input.date, input.slotId),
-      },
-    });
-    return { success: true };
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return { success: false, error: DUPLICATE_SLOT_ERROR };
-    }
-    throw error;
-  }
+  await database.reservation.update({
+    where: { id: reservation.id },
+    data: { partySize: input.partySize, request },
+  });
+  return { success: true };
 }

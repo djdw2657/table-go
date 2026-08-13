@@ -19,7 +19,10 @@ import { Input } from "@repo/design-system/components/ui/input";
 import { Label } from "@repo/design-system/components/ui/label";
 import { type FormEvent, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { getAvailability } from "../reservations/actions";
+import {
+  getAvailability,
+  type SlotAvailability,
+} from "../reservations/actions";
 import { FullDayButton } from "../reservations/full-day-button";
 import { isWithinEditWindow } from "../reservations/reservation-time";
 import { RESTAURANT_INFO } from "../reservations/restaurant-info";
@@ -72,7 +75,9 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
   const [editSlot, setEditSlot] = useState<string | null>(null);
   const [editPartySize, setEditPartySize] = useState(2);
   const [editRequest, setEditRequest] = useState("");
-  const [editBookedSlotIds, setEditBookedSlotIds] = useState<string[]>([]);
+  const [editSlotAvailability, setEditSlotAvailability] = useState<
+    SlotAvailability[]
+  >([]);
 
   const handleLookup = (event: FormEvent) => {
     event.preventDefault();
@@ -127,6 +132,10 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
     setEditPartySize(reservation.partySize);
     setEditRequest(reservation.request ?? "");
     setMode("edit");
+    startTransition(async () => {
+      const result = await getAvailability(reservation.date, reservation.id);
+      setEditSlotAvailability(result.slotAvailability);
+    });
   };
 
   const handleSelectEditDate = (date: Date | undefined) => {
@@ -137,7 +146,7 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
     }
     startTransition(async () => {
       const result = await getAvailability(toDateStr(date), reservation.id);
-      setEditBookedSlotIds(result.bookedSlotIds);
+      setEditSlotAvailability(result.slotAvailability);
     });
   };
 
@@ -323,9 +332,9 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
             selected={editDate}
           />
           <TimeSlotGrid
-            bookedSlotIds={editBookedSlotIds}
             onSelect={setEditSlot}
             selectedSlot={editSlot}
+            slotAvailability={editSlotAvailability}
             timeSlots={timeSlots}
           />
           <div className="grid gap-2">

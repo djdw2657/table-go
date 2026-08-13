@@ -4,7 +4,18 @@ import { withLogging, withSentry } from "@repo/observability/next-config";
 import type { NextConfig } from "next";
 import { env } from "@/env";
 
-let nextConfig: NextConfig = withToolbar(withLogging(config));
+let nextConfig: NextConfig = withToolbar(
+  withLogging({
+    ...config,
+    images: {
+      ...config.images,
+      remotePatterns: [
+        ...(config.images?.remotePatterns ?? []),
+        { protocol: "https", hostname: "images.unsplash.com" },
+      ],
+    },
+  })
+);
 
 if (env.VERCEL) {
   nextConfig = withSentry(nextConfig);
