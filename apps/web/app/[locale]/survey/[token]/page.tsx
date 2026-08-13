@@ -7,6 +7,12 @@ export const metadata: Metadata = {
   title: "만족도 설문 | 테이블GO",
 };
 
+// Token validity changes over time (doesn't exist yet when the email is
+// first queued, becomes valid once sent, becomes "already responded" after
+// submission) — this must never be cached, or a too-early visit permanently
+// 404s the link even after the row exists.
+export const dynamic = "force-dynamic";
+
 interface SurveyPageProps {
   params: Promise<{ token: string }>;
 }

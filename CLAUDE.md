@@ -50,11 +50,11 @@ Standard next-forge layout: `apps/*` are deployable Next.js apps; `packages/*` a
 Domain-specific code (not boilerplate) lives in:
 - `packages/database/prisma/schema.prisma` — `TimeSlot`, `Holiday`, `Reservation`, `Waitlist`, `Feedback` models
 - `apps/web/app/[locale]/reservations/` — public booking flow (`actions.ts` server actions, `reservation-form.tsx` client component, `waitlist-actions.ts`/`waitlist-dialog.tsx` for the waitlist)
-- `apps/web/app/[locale]/waitlist/[token]/` — waitlist claim page (token-gated)
-- `apps/web/app/[locale]/survey/[token]/` — satisfaction survey page (token-gated)
+- `apps/web/app/[locale]/waitlist/[token]/` — waitlist claim page (token-gated, `export const dynamic = "force-dynamic"` — see gotcha below)
+- `apps/web/app/[locale]/survey/[token]/` — satisfaction survey page (token-gated, same `force-dynamic` requirement)
 - `apps/app/app/(authenticated)/admin/` — staff reservation list + cancel action + waitlist cascade
 - `apps/app/app/(authenticated)/statistics-actions.ts` + `components/statistics.tsx` — admin dashboard stats (reservations, cancellations, regular customers, feedback/NPS)
-- `apps/api/app/cron/` — `complete-reservations` (flips past CONFIRMED reservations to COMPLETED), `waitlist-timeout` (expires stale NOTIFIED waitlist entries and cascades to the next one)
+- `apps/api/app/cron/` — `complete-reservations` (flips past CONFIRMED reservations to COMPLETED), `waitlist-timeout` (expires stale NOTIFIED waitlist entries and cascades to the next one). Both run once daily (`apps/api/vercel.json`'s `crons`), deliberately conservative to stay within the Vercel **Hobby plan**'s cron limits — tighten the schedule if the project ever moves to Pro.
 - Supabase Edge Function `send-survey-emails` (deployed to the Supabase project, not this repo's source tree — see "Satisfaction survey" below) — dispatches/reminds survey emails on a `pg_cron` schedule
 
 ### Reservation domain model
@@ -70,10 +70,11 @@ Domain-specific code (not boilerplate) lives in:
 
 ### Satisfaction survey
 
-**Gotcha**: `service_role` (which the Edge Function uses) has `bypassrls` but that does **not** imply ordinary table GRANTs — Postgres still requires them separately, and since `db push` creates tables owned by the `prisma` role (see "Live availability" below), `service_role` had zero privileges on them until explicitly granted (`grant select on "Reservation" to service_role; grant select, insert, update on "Feedback" to service_role;`). If a table the Edge Function needs to touch is ever recreated, redo this grant or every query silently fails with `permission denied for table X` (visible in Supabase's `function_logs`, not `function_edge_logs`).
-
-
 `Feedback` rows are created at **dispatch** time (not response time) so `surveySentAt`/`reminderSentAt` can drive timing windows even before a customer responds. The dispatch/reminder logic lives in a Supabase **Edge Function** (`send-survey-emails`, deployed via the Supabase MCP/CLI, not part of this repo's build) invoked hourly by `pg_cron` (`select cron.schedule('send-survey-emails-hourly', '0 * * * *', ...)`, calling `net.http_post` with the project URL + publishable key stored in Supabase Vault as `project_url`/`publishable_key`). It finds `COMPLETED` reservations with `completedAt` ≥24h old and no `Feedback` row yet (dispatch), and `Feedback` rows sent ≥3 days ago with no response and no reminder yet (reminder). The Edge Function needs `RESEND_TOKEN`/`RESEND_FROM`/`WEB_URL` set as Supabase Edge Function secrets (`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are auto-injected) — without them it still runs and creates `Feedback` rows, it just silently no-ops the email send. Since `relationMode = "prisma"` means there are no real Postgres foreign keys, the function can't use PostgREST relationship embedding (`select=*,Reservation(*)`) — every join is a manual second query.
+
+Because `/cron/complete-reservations` only runs once a day (see the Hobby-plan note above), the real-world gap between a visit and the survey landing in someone's inbox is closer to 1–2 days than a clean 24h — completion itself can lag the actual visit by up to a day before the 24h dispatch window even starts counting.
+
+**Gotcha**: `service_role` (which the Edge Function uses) has `bypassrls` but that does **not** imply ordinary table GRANTs — Postgres still requires them separately, and since `db push` creates tables owned by the `prisma` role (see "Live availability" below), `service_role` had zero privileges on them until explicitly granted (`grant select on "Reservation" to service_role; grant select, insert, update on "Feedback" to service_role;`). If a table the Edge Function needs to touch is ever recreated, redo this grant or every query silently fails with `permission denied for table X` (visible in Supabase's `function_logs`, not `function_edge_logs`).
 
 ### Live availability (Supabase Realtime Broadcast)
 
@@ -82,6 +83,8 @@ The DB is Supabase Postgres accessed via Prisma's `@prisma/adapter-pg` (node-pos
 "Live" updates use Supabase Realtime **Broadcast from Database**, not `postgres_changes`: a `SECURITY DEFINER` trigger (`public.broadcast_reservation_changes`, on both `Reservation` and `Waitlist`) calls `realtime.broadcast_changes()` on a single global `reservations` topic with `null` old/new records — **the broadcast payload deliberately carries no row data**, only a "something changed" signal, because `postgres_changes`/naive broadcast would otherwise leak customer PII (name/phone/email) to any subscriber. Both apps' browser clients (`@repo/realtime`'s `useReservationChangeSignal` hook) connect as the Supabase `anon` role (neither app uses Supabase Auth — `apps/web` is unauthenticated by design, `apps/app` uses Clerk) and, on any event, just re-run the existing safe server actions (`getAvailability`, `getFilteredReservations`, etc.) rather than reading the broadcast payload. A `realtime.messages` RLS policy grants `anon`/`authenticated` `SELECT` (safe, since the channel carries no data); `EXECUTE` on the trigger function is revoked from `anon`/`authenticated`/`public` since `SECURITY DEFINER` functions are otherwise callable via PostgREST RPC by default. All app tables (`TimeSlot`, `Holiday`, `Reservation`, `Waitlist`, `Feedback`) have RLS enabled with **no policies** (default-deny) as defense-in-depth — they're only ever queried through the `prisma` Postgres role (which has `bypassrls`), never through the Data API.
 
 Client-side polling (`POLL_INTERVAL_MS` in `reservation-form.tsx`, `reservations-table.tsx`) is kept as a fallback in case the Realtime connection drops, layered under the instant broadcast-triggered refetch — don't remove it when touching this code.
+
+**Gotcha**: any page whose `notFound()`/content depends on a DB row that can come into existence *after* the page was first requested (the `/waitlist/[token]` and `/survey/[token]` pages) must set `export const dynamic = "force-dynamic"`. Without it, Vercel's edge cached the first (404) response for a token indefinitely — a customer's very first click on an emailed link, sent seconds after the underlying row was created, could 404 forever even though the row is really there, because Next's build-time analysis doesn't detect a Prisma call as something that requires per-request rendering the way it does `fetch()`.
 
 ## Notes
 

@@ -7,6 +7,10 @@ export const metadata: Metadata = {
   title: "대기 확정 | 테이블GO",
 };
 
+// Entry status (WAITING/NOTIFIED/CONFIRMED/EXPIRED) changes over time and
+// this page must always reflect the current state — never cache it.
+export const dynamic = "force-dynamic";
+
 interface WaitlistClaimPageProps {
   params: Promise<{ token: string }>;
 }
