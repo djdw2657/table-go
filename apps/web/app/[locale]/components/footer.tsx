@@ -1,34 +1,12 @@
 import { Status } from "@repo/observability/status";
 import Link from "next/link";
-import { env } from "@/env";
+
+const links = [
+  { title: "예약하기", href: "/reservations" },
+  { title: "예약 확인", href: "/check-reservation" },
+];
 
 export const Footer = () => {
-  const navigationItems = [
-    {
-      title: "Home",
-      href: "/",
-      description: "",
-    },
-    {
-      title: "Pages",
-      description: "테이블GO 예약 시스템",
-      items: [
-        {
-          title: "예약하기",
-          href: "/reservations",
-        },
-        {
-          title: "문의하기",
-          href: "/contact",
-        },
-        {
-          title: "관리자",
-          href: `${env.NEXT_PUBLIC_APP_URL}/sign-in`,
-        },
-      ],
-    },
-  ];
-
   return (
     <section className="dark border-foreground/10 border-t">
       <div className="w-full bg-background py-20 text-foreground lg:py-40">
@@ -45,52 +23,15 @@ export const Footer = () => {
               </div>
               <Status />
             </div>
-            <div className="grid items-start gap-10 lg:grid-cols-3">
-              {navigationItems.map((item) => (
-                <div
-                  className="flex flex-col items-start gap-1 text-base"
-                  key={item.title}
+            <div className="flex flex-col items-start gap-2 lg:items-end">
+              {links.map((link) => (
+                <Link
+                  className="text-xl hover:text-foreground/75"
+                  href={link.href}
+                  key={link.href}
                 >
-                  <div className="flex flex-col gap-2">
-                    {item.href ? (
-                      <Link
-                        className="flex items-center justify-between"
-                        href={item.href}
-                        rel={
-                          item.href.includes("http")
-                            ? "noopener noreferrer"
-                            : undefined
-                        }
-                        target={
-                          item.href.includes("http") ? "_blank" : undefined
-                        }
-                      >
-                        <span className="text-xl">{item.title}</span>
-                      </Link>
-                    ) : (
-                      <p className="text-xl">{item.title}</p>
-                    )}
-                    {item.items?.map((subItem) => (
-                      <Link
-                        className="flex items-center justify-between"
-                        href={subItem.href}
-                        key={subItem.title}
-                        rel={
-                          subItem.href.includes("http")
-                            ? "noopener noreferrer"
-                            : undefined
-                        }
-                        target={
-                          subItem.href.includes("http") ? "_blank" : undefined
-                        }
-                      >
-                        <span className="text-foreground/75">
-                          {subItem.title}
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+                  {link.title}
+                </Link>
               ))}
             </div>
           </div>

@@ -6,7 +6,6 @@ import { Calendar } from "@repo/design-system/components/ui/calendar";
 import { Card, CardContent } from "@repo/design-system/components/ui/card";
 import { Input } from "@repo/design-system/components/ui/input";
 import { Label } from "@repo/design-system/components/ui/label";
-import { cn } from "@repo/design-system/lib/utils";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -15,13 +14,14 @@ import {
   useState,
   useTransition,
 } from "react";
-import { type DayButton, getDefaultClassNames } from "react-day-picker";
 import {
   createReservation,
   getAvailability,
   getMonthAvailability,
 } from "./actions";
+import { FullDayButton } from "./full-day-button";
 import { RESTAURANT_INFO } from "./restaurant-info";
+import { TimeSlotGrid } from "./time-slot-button";
 import {
   EMAIL_ERROR,
   formatPhoneNumber,
@@ -75,56 +75,6 @@ function startOfToday() {
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-// Mirrors the design system's CalendarDayButton (packages/design-system/
-// components/ui/calendar.tsx) — the selected/focus/range data-attribute
-// styling below is copied from there, since overriding `components.DayButton`
-// entirely (to add the "마감" badge) would otherwise silently drop it.
-function FullDayButton({
-  className,
-  day,
-  modifiers,
-  children,
-  ...props
-}: React.ComponentProps<typeof DayButton>) {
-  const defaultClassNames = getDefaultClassNames();
-  const ref = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (modifiers.focused) {
-      ref.current?.focus();
-    }
-  }, [modifiers.focused]);
-
-  return (
-    <Button
-      className={cn(
-        "flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-0 font-normal leading-none data-[range-end=true]:rounded-md data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-md data-[range-end=true]:rounded-r-md data-[range-start=true]:rounded-l-md data-[range-end=true]:bg-primary data-[range-middle=true]:bg-accent data-[range-start=true]:bg-primary data-[selected-single=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:text-accent-foreground data-[range-start=true]:text-primary-foreground data-[selected-single=true]:text-primary-foreground group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring/50 dark:hover:text-accent-foreground",
-        defaultClassNames.day,
-        className
-      )}
-      data-day={day.date.toLocaleDateString()}
-      data-range-end={modifiers.range_end}
-      data-range-middle={modifiers.range_middle}
-      data-range-start={modifiers.range_start}
-      data-selected-single={
-        modifiers.selected &&
-        !modifiers.range_start &&
-        !modifiers.range_end &&
-        !modifiers.range_middle
-      }
-      ref={ref}
-      size="icon"
-      variant="ghost"
-      {...props}
-    >
-      {children}
-      {modifiers.full && (
-        <span className="text-[9px] text-destructive leading-none">마감</span>
-      )}
-    </Button>
-  );
 }
 
 export function ReservationForm({ timeSlots }: ReservationFormProps) {
@@ -329,10 +279,14 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const selectedTimeSlot = timeSlots.find((slot) => slot.id === selectedSlot);
 
   return (
-    <div className="container mx-auto grid max-w-4xl gap-8 pb-24 lg:grid-cols-2">
+    <div className="container mx-auto grid max-w-4xl gap-8 pb-12 sm:pb-24 md:grid-cols-2">
       <Card className="h-fit">
         <CardContent className="flex justify-center pt-6">
           <Calendar
+            className="[--cell-size:2.75rem]"
+            classNames={{
+              today: "rounded-none ring-1 ring-inset ring-brand-red",
+            }}
             components={{ DayButton: FullDayButton }}
             disabled={(date) =>
               isWeekend(date) ||
@@ -406,22 +360,13 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
               </p>
             )}
             {selectedDate && (
-              <div className="grid grid-cols-3 gap-2">
-                {timeSlots.map((slot) => {
-                  const isBooked = bookedSlotIds.includes(slot.id);
-                  return (
-                    <Button
-                      disabled={isBooked || isLoadingAvailability}
-                      key={slot.id}
-                      onClick={() => setSelectedSlot(slot.id)}
-                      type="button"
-                      variant={selectedSlot === slot.id ? "default" : "outline"}
-                    >
-                      {isBooked ? "마감" : slot.displayName}
-                    </Button>
-                  );
-                })}
-              </div>
+              <TimeSlotGrid
+                bookedSlotIds={bookedSlotIds}
+                disabled={isLoadingAvailability}
+                onSelect={setSelectedSlot}
+                selectedSlot={selectedSlot}
+                timeSlots={timeSlots}
+              />
             )}
           </div>
 

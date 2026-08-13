@@ -20,8 +20,10 @@ import { Label } from "@repo/design-system/components/ui/label";
 import { type FormEvent, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { getAvailability } from "../reservations/actions";
+import { FullDayButton } from "../reservations/full-day-button";
 import { isWithinEditWindow } from "../reservations/reservation-time";
 import { RESTAURANT_INFO } from "../reservations/restaurant-info";
+import { TimeSlotGrid } from "../reservations/time-slot-button";
 import { formatPhoneNumber } from "../reservations/validation";
 import {
   cancelReservationByCustomer,
@@ -310,27 +312,22 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
       <Card>
         <CardContent className="flex flex-col gap-4 pt-6">
           <Calendar
+            className="[--cell-size:2.75rem]"
+            classNames={{
+              today: "rounded-none ring-1 ring-inset ring-brand-red",
+            }}
+            components={{ DayButton: FullDayButton }}
             disabled={(date) => isWeekend(date) || date < startOfToday()}
             mode="single"
             onSelect={handleSelectEditDate}
             selected={editDate}
           />
-          <div className="grid grid-cols-3 gap-2">
-            {timeSlots.map((slot) => {
-              const isBooked = editBookedSlotIds.includes(slot.id);
-              return (
-                <Button
-                  disabled={isBooked}
-                  key={slot.id}
-                  onClick={() => setEditSlot(slot.id)}
-                  type="button"
-                  variant={editSlot === slot.id ? "default" : "outline"}
-                >
-                  {isBooked ? "마감" : slot.displayName}
-                </Button>
-              );
-            })}
-          </div>
+          <TimeSlotGrid
+            bookedSlotIds={editBookedSlotIds}
+            onSelect={setEditSlot}
+            selectedSlot={editSlot}
+            timeSlots={timeSlots}
+          />
           <div className="grid gap-2">
             <Label htmlFor="editPartySize">인원</Label>
             <Input
