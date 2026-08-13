@@ -36,12 +36,15 @@ import {
 } from "./actions";
 
 interface CheckReservationFormProps {
+  initialIntent?: "cancel" | "edit";
+  initialReservationNumber?: string;
   timeSlots: TimeSlot[];
 }
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "대기 중",
   CONFIRMED: "확정됨",
+  COMPLETED: "이용 완료",
   CANCELLED: "취소됨",
 };
 
@@ -63,13 +66,20 @@ function toDateStr(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
-export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
+export function CheckReservationForm({
+  initialIntent,
+  initialReservationNumber,
+  timeSlots,
+}: CheckReservationFormProps) {
   const [mode, setMode] = useState<"lookup" | "result" | "edit">("lookup");
-  const [reservationNumber, setReservationNumber] = useState("");
+  const [reservationNumber, setReservationNumber] = useState(
+    initialReservationNumber ?? ""
+  );
   const [phone, setPhone] = useState("");
   const [reservation, setReservation] = useState<LookupData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   const [editDate, setEditDate] = useState<Date | undefined>();
   const [editSlot, setEditSlot] = useState<string | null>(null);
@@ -90,6 +100,18 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
       }
       setReservation(result.reservation);
       setMode("result");
+
+      const canModifyResult =
+        result.reservation.status !== "CANCELLED" &&
+        isWithinEditWindow(
+          new Date(`${result.reservation.date}T00:00:00.000Z`),
+          result.reservation.timeSlot.startTime
+        );
+      if (canModifyResult && initialIntent === "cancel") {
+        setCancelDialogOpen(true);
+      } else if (canModifyResult && initialIntent === "edit") {
+        startEditFor(result.reservation);
+      }
     });
   };
 
@@ -120,22 +142,26 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
     });
   };
 
+  const startEditFor = (target: LookupData) => {
+    const date = new Date(`${target.date}T00:00:00.000Z`);
+    setEditDate(
+      new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+    );
+    setEditSlot(target.timeSlot.id);
+    setEditPartySize(target.partySize);
+    setEditRequest(target.request ?? "");
+    setMode("edit");
+    startTransition(async () => {
+      const result = await getAvailability(target.date, target.id);
+      setEditSlotAvailability(result.slotAvailability);
+    });
+  };
+
   const startEdit = () => {
     if (!reservation) {
       return;
     }
-    const date = new Date(`${reservation.date}T00:00:00.000Z`);
-    setEditDate(
-      new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-    );
-    setEditSlot(reservation.timeSlot.id);
-    setEditPartySize(reservation.partySize);
-    setEditRequest(reservation.request ?? "");
-    setMode("edit");
-    startTransition(async () => {
-      const result = await getAvailability(reservation.date, reservation.id);
-      setEditSlotAvailability(result.slotAvailability);
-    });
+    startEditFor(reservation);
   };
 
   const handleSelectEditDate = (date: Date | undefined) => {
@@ -191,6 +217,12 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
   if (mode === "lookup") {
     return (
       <form className="flex flex-col gap-4" onSubmit={handleLookup}>
+        {initialIntent && (
+          <p className="text-muted-foreground text-sm">
+            본인 확인을 위해 연락처를 입력해주세요. 확인 후 바로{" "}
+            {initialIntent === "cancel" ? "취소" : "변경"} 화면으로 이동합니다.
+          </p>
+        )}
         <div className="grid gap-2">
           <Label htmlFor="reservationNumber">예약번호</Label>
           <Input
@@ -272,7 +304,10 @@ export function CheckReservationForm({ timeSlots }: CheckReservationFormProps) {
               >
                 예약 수정
               </Button>
-              <AlertDialog>
+              <AlertDialog
+                onOpenChange={setCancelDialogOpen}
+                open={cancelDialogOpen}
+              >
                 <AlertDialogTrigger asChild>
                   <Button
                     className="flex-1"

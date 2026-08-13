@@ -14,6 +14,23 @@ datasource db {
 enum ReservationStatus {
   PENDING
   CONFIRMED
+  // Slot's start time has passed with the reservation never cancelled — set
+  // by a cron sweep (apps/api `/cron/complete-reservations`), which is what
+  // makes a row eligible for a satisfaction-survey email.
+  COMPLETED
+  CANCELLED
+}
+
+enum WaitlistStatus {
+  // Open slot to be offered to whoever is first in line.
+  WAITING
+  // Currently offered to this entry; they have until `notifyExpiresAt` to
+  // claim it via their `token` link before it cascades to the next entry.
+  NOTIFIED
+  // Claimed — converted into a real Reservation.
+  CONFIRMED
+  // Missed the 24h claim window; cascaded to the next WAITING entry.
+  EXPIRED
   CANCELLED
 }
 
@@ -24,6 +41,7 @@ model TimeSlot {
   endTime      String
   displayName  String
   reservations Reservation[]
+  waitlists    Waitlist[]
 }
 
 // Dates the restaurant is closed regardless of day-of-week (on top of the
@@ -66,7 +84,60 @@ model Reservation {
   cancelReason      String?
   teamSlotIndex     Int?
   createdAt         DateTime          @default(now())
+  // Set by apps/api's `/cron/complete-reservations` when status flips to
+  // COMPLETED — the survey-dispatch Edge Function's "24h after completion"
+  // window is measured from this, not from the slot's start time, since a
+  // daily cron sweep can lag the actual visit by up to ~24h on its own.
+  completedAt       DateTime?
+  feedback          Feedback?
 
   @@unique([date, slotId, teamSlotIndex])
   @@index([date, slotId])
+}
+
+// A first-come-first-served queue per date+slot for customers who tried to
+// book a full slot. FIFO order is `createdAt` ascending among WAITING rows
+// for the same (date, slotId) — no separate position column to keep in sync.
+// `token` gates the claim page (`/waitlist/[token]`); unlike the
+// reservationNumber+phone lookup used elsewhere, this link IS the credential,
+// since the customer never created an account or reservation to look up yet.
+model Waitlist {
+  id              String         @id @default(cuid())
+  date            DateTime       @db.Date
+  slotId          String
+  timeSlot        TimeSlot       @relation(fields: [slotId], references: [id])
+  partySize       Int
+  customerName    String
+  customerPhone   String
+  // Required (unlike Reservation.customerEmail) — email is the only channel
+  // used to notify a waitlisted customer that a seat opened up.
+  customerEmail   String
+  request         String?
+  status          WaitlistStatus @default(WAITING)
+  token           String         @unique
+  notifiedAt      DateTime?
+  notifyExpiresAt DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@index([date, slotId, status, createdAt])
+}
+
+// One row per reservation that has been sent a survey; created at dispatch
+// time (not at response time) so `surveySentAt`/`reminderSentAt` can drive
+// the 24h-dispatch / 3-day-reminder cron windows even before the customer
+// responds. Rating fields stay null until `respondedAt` is set.
+// `token` gates the survey page the same way `Waitlist.token` does.
+model Feedback {
+  id             String      @id @default(cuid())
+  reservationId  String      @unique
+  reservation    Reservation @relation(fields: [reservationId], references: [id])
+  token          String      @unique
+  foodRating     Int?
+  serviceRating  Int?
+  npsScore       Int?
+  comment        String?
+  surveySentAt   DateTime?
+  reminderSentAt DateTime?
+  respondedAt    DateTime?
+  createdAt      DateTime    @default(now())
 }

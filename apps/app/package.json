@@ -20,6 +20,7 @@
     "@repo/next-config": "*",
     "@repo/notifications": "*",
     "@repo/observability": "*",
+    "@repo/realtime": "*",
     "@repo/security": "*",
     "@repo/seo": "*",
     "@repo/webhooks": "*",

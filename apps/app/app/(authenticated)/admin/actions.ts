@@ -3,6 +3,7 @@
 import { database } from "@repo/database";
 import { revalidatePath } from "next/cache";
 import { env } from "@/env";
+import { cascadeWaitlistNotification } from "./waitlist-cascade";
 
 // `date` columns store UTC-midnight standing in for a KST calendar date, so
 // "today" must be today's KST date — not the UTC date, which is still
@@ -31,16 +32,20 @@ export interface SlotStatus {
     status: string;
   }[];
   startTime: string;
+  waitlistCount: number;
 }
 
 export async function getSlotStatusForDate(
   dateStr: string
 ): Promise<SlotStatus[]> {
   const date = new Date(`${dateStr}T00:00:00.000Z`);
-  const [slots, reservations] = await Promise.all([
+  const [slots, reservations, waitlistEntries] = await Promise.all([
     database.timeSlot.findMany({ orderBy: { startTime: "asc" } }),
     database.reservation.findMany({
       where: { date, status: { not: "CANCELLED" } },
+    }),
+    database.waitlist.findMany({
+      where: { date, status: { in: ["WAITING", "NOTIFIED"] } },
     }),
   ]);
 
@@ -49,6 +54,14 @@ export async function getSlotStatusForDate(
     const existing = reservationsBySlot.get(reservation.slotId) ?? [];
     existing.push(reservation);
     reservationsBySlot.set(reservation.slotId, existing);
+  }
+
+  const waitlistCountBySlot = new Map<string, number>();
+  for (const entry of waitlistEntries) {
+    waitlistCountBySlot.set(
+      entry.slotId,
+      (waitlistCountBySlot.get(entry.slotId) ?? 0) + 1
+    );
   }
 
   return slots.map((slot) => {
@@ -67,6 +80,7 @@ export async function getSlotStatusForDate(
         status: reservation.status,
       })),
       startTime: slot.startTime,
+      waitlistCount: waitlistCountBySlot.get(slot.id) ?? 0,
     };
   });
 }
@@ -75,7 +89,7 @@ export interface ReservationFilters {
   endDate?: string;
   sortOrder?: "asc" | "desc";
   startDate?: string;
-  status?: "ALL" | "PENDING" | "CONFIRMED" | "CANCELLED";
+  status?: "ALL" | "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
 }
 
 export async function getFilteredReservations(
@@ -131,6 +145,9 @@ export async function updateReservationStatus(input: {
           }
         : { status: "CONFIRMED" },
   });
+  if (input.status === "CANCELLED") {
+    await cascadeWaitlistNotification(existing.date, existing.slotId);
+  }
   revalidatePath("/admin");
   return { success: true };
 }

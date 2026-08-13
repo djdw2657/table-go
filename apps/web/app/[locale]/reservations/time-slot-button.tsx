@@ -7,6 +7,7 @@ import type { SlotAvailability } from "./actions";
 
 interface TimeSlotGridProps {
   disabled?: boolean;
+  onJoinWaitlist?: (slotId: string) => void;
   onSelect: (slotId: string) => void;
   selectedSlot: string | null;
   slotAvailability: SlotAvailability[];
@@ -15,8 +16,11 @@ interface TimeSlotGridProps {
 
 // Shared by the booking form and the self-service edit panel so the two
 // never drift visually — see full-day-button.tsx for the calendar half.
+// `onJoinWaitlist` is only passed by the booking form (not the self-service
+// edit panel, where "대기 등록" doesn't make sense) — see reservation-form.tsx.
 export function TimeSlotGrid({
   disabled,
+  onJoinWaitlist,
   onSelect,
   selectedSlot,
   slotAvailability,
@@ -35,26 +39,36 @@ export function TimeSlotGrid({
         const remaining = remainingBySlot.get(slot.id) ?? 0;
         const isFull = remaining <= 0;
         return (
-          <Button
-            className={cn(
-              "h-12 flex-col gap-0.5 rounded-none sm:h-11",
-              !(isFull || selectedSlot === slot.id) &&
-                "hover:border-b-2 hover:border-b-brand-red",
-              isFull && "text-muted-foreground line-through"
+          <div className="flex flex-col gap-1" key={slot.id}>
+            <Button
+              className={cn(
+                "h-12 w-full flex-col gap-0.5 rounded-none sm:h-11",
+                !(isFull || selectedSlot === slot.id) &&
+                  "hover:border-b-2 hover:border-b-brand-red",
+                isFull && "text-muted-foreground line-through"
+              )}
+              disabled={isFull || disabled}
+              onClick={() => onSelect(slot.id)}
+              type="button"
+              variant={selectedSlot === slot.id ? "default" : "outline"}
+            >
+              <span>{isFull ? "마감" : slot.displayName}</span>
+              {!isFull && (
+                <span className="font-normal text-[10px] opacity-70">
+                  {remaining}팀 가능
+                </span>
+              )}
+            </Button>
+            {isFull && onJoinWaitlist && (
+              <button
+                className="text-[11px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-brand-red"
+                onClick={() => onJoinWaitlist(slot.id)}
+                type="button"
+              >
+                대기 등록
+              </button>
             )}
-            disabled={isFull || disabled}
-            key={slot.id}
-            onClick={() => onSelect(slot.id)}
-            type="button"
-            variant={selectedSlot === slot.id ? "default" : "outline"}
-          >
-            <span>{isFull ? "마감" : slot.displayName}</span>
-            {!isFull && (
-              <span className="font-normal text-[10px] opacity-70">
-                {remaining}팀 가능
-              </span>
-            )}
-          </Button>
+          </div>
         );
       })}
     </div>

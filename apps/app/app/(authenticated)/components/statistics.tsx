@@ -26,12 +26,18 @@ import {
 } from "recharts";
 import {
   type CancellationStats,
+  type FeedbackSummary,
   getCancellationStats,
+  getFeedbackSummary,
   getPopularTimeSlots,
+  getRecentComments,
   getRegularCustomers,
   getReservationTrend,
+  getResponseRateByDay,
   type PopularSlot,
+  type RecentComment,
   type RegularCustomer,
+  type ResponseRatePoint,
   type TrendPoint,
 } from "../statistics-actions";
 
@@ -222,6 +228,136 @@ function RegularCustomers() {
   );
 }
 
+function FeedbackScores() {
+  const [summary, setSummary] = useState<FeedbackSummary | null>(null);
+
+  useEffect(() => {
+    getFeedbackSummary().then(setSummary);
+  }, []);
+
+  const tiles: { label: string; value: string }[] = [
+    {
+      label: "평균 음식 별점",
+      value: summary?.avgFoodRating ? `${summary.avgFoodRating} / 5` : "-",
+    },
+    {
+      label: "평균 서비스 별점",
+      value: summary?.avgServiceRating
+        ? `${summary.avgServiceRating} / 5`
+        : "-",
+    },
+    {
+      label: "평균 NPS",
+      value: summary?.avgNpsScore ? `${summary.avgNpsScore} / 10` : "-",
+    },
+    {
+      label: "설문 응답률",
+      value: summary ? `${summary.responseRate}%` : "-",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {tiles.map((tile) => (
+        <div className="rounded-xl border p-6" key={tile.label}>
+          <p className="text-muted-foreground text-sm">{tile.label}</p>
+          <p className="mt-2 font-semibold text-3xl">{tile.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ResponseRateChart() {
+  const [data, setData] = useState<ResponseRatePoint[]>([]);
+
+  useEffect(() => {
+    getResponseRateByDay().then(setData);
+  }, []);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">일자별 설문 응답률 (14일)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[220px] w-full text-xs">
+          <ResponsiveContainer height="100%" width="100%">
+            <BarChart data={data}>
+              <CartesianGrid stroke="var(--border)" vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="label"
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                tickMargin={8}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--popover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)",
+                  color: "var(--popover-foreground)",
+                }}
+              />
+              <Bar
+                dataKey="sent"
+                fill="var(--muted-foreground)"
+                name="발송"
+                radius={4}
+              />
+              <Bar
+                dataKey="responded"
+                fill="var(--primary)"
+                name="응답"
+                radius={4}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentComments() {
+  const [comments, setComments] = useState<RecentComment[]>([]);
+
+  useEffect(() => {
+    getRecentComments().then(setComments);
+  }, []);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">최근 설문 코멘트</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {comments.length === 0 && (
+          <p className="text-muted-foreground text-sm">
+            아직 남겨진 코멘트가 없습니다.
+          </p>
+        )}
+        {comments.map((comment, index) => (
+          <div
+            className={cn("flex flex-col gap-1", index > 0 && "border-t pt-3")}
+            key={comment.id}
+          >
+            <div className="flex items-center justify-between text-muted-foreground text-xs">
+              <span>{comment.customerName}</span>
+              <span>
+                {comment.npsScore !== null && `NPS ${comment.npsScore} · `}
+                {comment.respondedAt}
+              </span>
+            </div>
+            <p className="text-sm">{comment.comment}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function Statistics() {
   return (
     <div className="flex flex-col gap-4">
@@ -231,6 +367,11 @@ export function Statistics() {
         <PopularSlots />
       </div>
       <RegularCustomers />
+      <FeedbackScores />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ResponseRateChart />
+        <RecentComments />
+      </div>
     </div>
   );
 }

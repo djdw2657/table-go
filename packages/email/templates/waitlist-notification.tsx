@@ -11,16 +11,12 @@ import {
   Text,
 } from "@react-email/components";
 
-interface ReservationConfirmationEmailProps {
-  readonly cancelUrl: string;
+interface WaitlistNotificationEmailProps {
+  readonly claimUrl: string;
   readonly customerName: string;
   readonly date: string;
-  readonly editUrl: string;
-  readonly partySize: number;
-  readonly reservationNumber: string;
-  readonly restaurantAddress: string;
+  readonly expiresInHours: number;
   readonly restaurantName: string;
-  readonly restaurantPhone: string;
   readonly timeRange: string;
 }
 
@@ -32,21 +28,17 @@ const colors = {
   muted: "#6b6560",
 };
 
-export const ReservationConfirmationEmail = ({
-  cancelUrl,
+export const WaitlistNotificationEmail = ({
+  claimUrl,
   customerName,
   date,
-  editUrl,
-  partySize,
-  reservationNumber,
-  restaurantAddress,
+  expiresInHours,
   restaurantName,
-  restaurantPhone,
   timeRange,
-}: ReservationConfirmationEmailProps) => (
+}: WaitlistNotificationEmailProps) => (
   <Html>
     <Head />
-    <Preview>{`${restaurantName} 예약이 확정되었습니다 — ${date} ${timeRange}`}</Preview>
+    <Preview>{`대기하신 자리가 났습니다 — ${date} ${timeRange}`}</Preview>
     <Body
       style={{
         backgroundColor: colors.background,
@@ -60,12 +52,12 @@ export const ReservationConfirmationEmail = ({
         <Logo />
         <Heading
           style={{
-            fontSize: "24px",
+            fontSize: "22px",
             margin: "0 0 24px",
             textAlign: "center",
           }}
         >
-          {restaurantName}
+          대기하신 자리가 났습니다!
         </Heading>
 
         <Section
@@ -76,48 +68,25 @@ export const ReservationConfirmationEmail = ({
           }}
         >
           <Text style={{ fontSize: "15px", margin: "0 0 16px" }}>
-            {customerName}님, 예약이 확정되었습니다.
+            {customerName}님, 대기 등록하신 시간대에 자리가 났습니다.
           </Text>
-          <Row label="예약번호" value={reservationNumber} />
           <Row label="날짜" value={date} />
           <Row label="시간" value={timeRange} />
-          <Row label="인원" value={`${partySize}명`} />
         </Section>
 
-        <Section style={{ padding: "20px 4px" }}>
-          <table style={{ borderCollapse: "collapse", margin: "0 auto" }}>
-            <tr>
-              <td style={{ padding: "0 6px" }}>
-                <Button
-                  href={editUrl}
-                  style={{
-                    backgroundColor: "#fff",
-                    border: `1px solid ${colors.ink}`,
-                    borderRadius: "0",
-                    color: colors.ink,
-                    fontSize: "14px",
-                    padding: "12px 24px",
-                  }}
-                >
-                  예약 변경
-                </Button>
-              </td>
-              <td style={{ padding: "0 6px" }}>
-                <Button
-                  href={cancelUrl}
-                  style={{
-                    backgroundColor: colors.accent,
-                    borderRadius: "0",
-                    color: "#fff",
-                    fontSize: "14px",
-                    padding: "12px 24px",
-                  }}
-                >
-                  예약 취소
-                </Button>
-              </td>
-            </tr>
-          </table>
+        <Section style={{ padding: "20px 4px", textAlign: "center" }}>
+          <Button
+            href={claimUrl}
+            style={{
+              backgroundColor: colors.accent,
+              borderRadius: "0",
+              color: "#fff",
+              fontSize: "14px",
+              padding: "12px 32px",
+            }}
+          >
+            지금 예약 확정하기
+          </Button>
         </Section>
 
         <Hr style={{ borderColor: colors.border, margin: "24px 0" }} />
@@ -130,9 +99,10 @@ export const ReservationConfirmationEmail = ({
             textAlign: "center",
           }}
         >
-          {restaurantName} · {restaurantAddress} · {restaurantPhone}
+          {restaurantName}
           <br />
-          예약 변경·취소는 예약 24시간 전까지 가능합니다.
+          {expiresInHours}시간 이내에 확정하지 않으시면 다음 대기자에게 자리가
+          넘어갑니다.
         </Text>
       </Container>
     </Body>
@@ -212,19 +182,13 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-ReservationConfirmationEmail.PreviewProps = {
-  cancelUrl:
-    "https://example.com/check-reservation?number=R-20260820-001&intent=cancel",
+WaitlistNotificationEmail.PreviewProps = {
+  claimUrl: "https://example.com/waitlist/abc123",
   customerName: "홍길동",
   date: "2026-08-20",
-  editUrl:
-    "https://example.com/check-reservation?number=R-20260820-001&intent=edit",
-  partySize: 2,
-  reservationNumber: "R-20260820-001",
-  restaurantAddress: "서울특별시 강남구 테헤란로 123",
+  expiresInHours: 24,
   restaurantName: "테이블GO",
-  restaurantPhone: "02-1234-5678",
   timeRange: "16:00 - 18:00",
-} satisfies ReservationConfirmationEmailProps;
+} satisfies WaitlistNotificationEmailProps;
 
-export default ReservationConfirmationEmail;
+export default WaitlistNotificationEmail;

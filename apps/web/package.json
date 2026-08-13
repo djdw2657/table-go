@@ -21,6 +21,7 @@
     "@repo/next-config": "*",
     "@repo/observability": "*",
     "@repo/rate-limit": "*",
+    "@repo/realtime": "*",
     "@repo/security": "*",
     "@repo/seo": "*",
     "@rescale/nemo": "^2.1.1",

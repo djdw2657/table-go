@@ -2,6 +2,7 @@
 
 import { database } from "@repo/database";
 import {
+  cascadeWaitlistNotification,
   DUPLICATE_SLOT_ERROR,
   isClosedDay,
   parseDateOnly,
@@ -116,6 +117,7 @@ export async function cancelReservationByCustomer(input: {
     where: { id: reservation.id },
     data: { status: "CANCELLED", teamSlotIndex: null },
   });
+  await cascadeWaitlistNotification(reservation.date, reservation.slotId);
   return { success: true };
 }
 
@@ -199,6 +201,8 @@ export async function updateReservationByCustomer(
     if (!outcome.success) {
       return { success: false, error: DUPLICATE_SLOT_ERROR };
     }
+    // Moving to a different date/slot frees up the original seat.
+    await cascadeWaitlistNotification(reservation.date, reservation.slotId);
     return { success: true };
   }
 

@@ -3,6 +3,7 @@
 import { Calendar } from "@repo/design-system/components/ui/calendar";
 import { Card, CardContent } from "@repo/design-system/components/ui/card";
 import { cn } from "@repo/design-system/lib/utils";
+import { useReservationChangeSignal } from "@repo/realtime";
 import { useEffect, useState } from "react";
 import { getSlotStatusForDate, type SlotStatus } from "./actions";
 
@@ -47,6 +48,15 @@ export function CalendarSlotPanel() {
     };
   }, [selectedDate]);
 
+  // Instant push — re-fetch the currently viewed date's slot status on any
+  // reservation/waitlist change, without disturbing the selected slot.
+  useReservationChangeSignal(() => {
+    if (!selectedDate) {
+      return;
+    }
+    getSlotStatusForDate(toDateStr(selectedDate)).then(setSlots);
+  });
+
   const selectedSlot = slots.find((slot) => slot.id === selectedSlotId);
 
   return (
@@ -87,6 +97,11 @@ export function CalendarSlotPanel() {
                 <span className="text-xs opacity-80">
                   {slot.reservations.length}/3팀
                 </span>
+                {slot.waitlistCount > 0 && (
+                  <span className="text-[10px] opacity-70">
+                    대기 {slot.waitlistCount}팀
+                  </span>
+                )}
               </button>
             ))}
           </div>

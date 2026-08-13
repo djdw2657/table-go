@@ -195,3 +195,130 @@ export async function getRegularCustomers(): Promise<RegularCustomer[]> {
     .sort((a, b) => b.visitCount - a.visitCount)
     .slice(0, 20);
 }
+
+export interface FeedbackSummary {
+  avgFoodRating: number | null;
+  avgNpsScore: number | null;
+  avgServiceRating: number | null;
+  responseCount: number;
+  responseRate: number;
+  sentCount: number;
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return (
+    Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+  );
+}
+
+export async function getFeedbackSummary(): Promise<FeedbackSummary> {
+  const feedback = await database.feedback.findMany({
+    where: { surveySentAt: { not: null } },
+    select: {
+      foodRating: true,
+      npsScore: true,
+      respondedAt: true,
+      serviceRating: true,
+    },
+  });
+
+  const responded = feedback.filter((f) => f.respondedAt !== null);
+
+  return {
+    avgFoodRating: average(
+      responded.map((f) => f.foodRating).filter((v) => v !== null) as number[]
+    ),
+    avgNpsScore: average(
+      responded.map((f) => f.npsScore).filter((v) => v !== null) as number[]
+    ),
+    avgServiceRating: average(
+      responded
+        .map((f) => f.serviceRating)
+        .filter((v) => v !== null) as number[]
+    ),
+    responseCount: responded.length,
+    responseRate:
+      feedback.length > 0
+        ? Math.round((responded.length / feedback.length) * 1000) / 10
+        : 0,
+    sentCount: feedback.length,
+  };
+}
+
+export interface RecentComment {
+  comment: string;
+  customerName: string;
+  id: string;
+  npsScore: number | null;
+  respondedAt: string;
+}
+
+export async function getRecentComments(): Promise<RecentComment[]> {
+  const feedback = await database.feedback.findMany({
+    where: { comment: { not: null }, respondedAt: { not: null } },
+    orderBy: { respondedAt: "desc" },
+    take: 10,
+    select: {
+      comment: true,
+      id: true,
+      npsScore: true,
+      respondedAt: true,
+      reservation: { select: { customerName: true } },
+    },
+  });
+
+  return feedback
+    .filter((f): f is typeof f & { comment: string; respondedAt: Date } =>
+      Boolean(f.comment && f.respondedAt)
+    )
+    .map((f) => ({
+      comment: f.comment,
+      customerName: f.reservation.customerName,
+      id: f.id,
+      npsScore: f.npsScore,
+      respondedAt: f.respondedAt.toISOString().slice(0, 10),
+    }));
+}
+
+export interface ResponseRatePoint {
+  label: string;
+  responded: number;
+  sent: number;
+}
+
+// Last 14 days, bucketed by the date the survey was *sent* (not responded),
+// so a day's bar always reflects a stable cohort even before all responses
+// are in.
+export async function getResponseRateByDay(): Promise<ResponseRatePoint[]> {
+  const today = todayDateOnly();
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - 13);
+
+  const feedback = await database.feedback.findMany({
+    where: { surveySentAt: { gte: start } },
+    select: { respondedAt: true, surveySentAt: true },
+  });
+
+  const buckets: ResponseRatePoint[] = [];
+  for (let i = 0; i < 14; i++) {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + i);
+    const nextDay = new Date(day);
+    nextDay.setUTCDate(day.getUTCDate() + 1);
+
+    const sentThatDay = feedback.filter(
+      (f) => f.surveySentAt && f.surveySentAt >= day && f.surveySentAt < nextDay
+    );
+
+    buckets.push({
+      label: `${day.getUTCMonth() + 1}/${day.getUTCDate()}`,
+      responded: sentThatDay.filter((f) => f.respondedAt !== null).length,
+      sent: sentThatDay.length,
+    });
+  }
+
+  return buckets;
+}

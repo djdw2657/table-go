@@ -1,0 +1,20 @@
+{
+  "name": "@repo/realtime",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "@t3-oss/env-nextjs": "^0.13.10",
+    "react": "19.2.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/react": "19.2.14",
+    "typescript": "^5.9.3"
+  }
+}

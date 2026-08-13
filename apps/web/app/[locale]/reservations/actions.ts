@@ -34,7 +34,13 @@ async function sendReservationEmails(input: {
     return;
   }
 
-  const manageUrl = `${env.NEXT_PUBLIC_WEB_URL}/check-reservation`;
+  // The customer still has to enter their phone number on the lookup page
+  // to prove ownership — the reservation number in the link only pre-fills
+  // that field and jumps straight to the edit/cancel step, it never grants
+  // access by itself.
+  const numberParam = encodeURIComponent(input.reservationNumber);
+  const editUrl = `${env.NEXT_PUBLIC_WEB_URL}/check-reservation?number=${numberParam}&intent=edit`;
+  const cancelUrl = `${env.NEXT_PUBLIC_WEB_URL}/check-reservation?number=${numberParam}&intent=cancel`;
   const adminUrl = env.NEXT_PUBLIC_APP_URL;
 
   const sends: Promise<unknown>[] = [];
@@ -44,9 +50,10 @@ async function sendReservationEmails(input: {
       resend.emails.send({
         from: env.RESEND_FROM ?? "onboarding@resend.dev",
         react: ReservationConfirmationEmail({
+          cancelUrl,
           customerName: input.customerName,
           date: input.date,
-          manageUrl,
+          editUrl,
           partySize: input.partySize,
           reservationNumber: input.reservationNumber,
           restaurantAddress: RESTAURANT_INFO.address,

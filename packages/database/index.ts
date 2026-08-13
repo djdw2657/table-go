@@ -1,19 +1,19 @@
 import "server-only";
 
-import { neonConfig } from "@neondatabase/serverless";
-import { PrismaNeon } from "@prisma/adapter-neon";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import { PrismaClient } from "./generated/client";
 import { keys } from "./keys";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// Query over HTTPS instead of opening a WebSocket connection. WebSocket
-// upgrades are unreliable in some serverless sandboxes (observed as
-// "Unexpected server response: 101" on Vercel); fetch-based queries avoid
-// that entirely and work the same in local dev.
-neonConfig.poolQueryViaFetch = true;
-
-const adapter = new PrismaNeon({ connectionString: keys().DATABASE_URL });
+// DATABASE_URL is expected to be Supabase's Supavisor transaction-mode
+// pooler (port 6543, `?pgbouncer=true`) — right-sized for serverless
+// functions, which open many short-lived connections. See CLAUDE.md for
+// why this isn't the direct/session connection (that's for `prisma db
+// push`/`generate` only, via packages/database/.env, not app runtime).
+const pool = new Pool({ connectionString: keys().DATABASE_URL });
+const adapter = new PrismaPg(pool);
 
 export const database = globalForPrisma.prisma || new PrismaClient({ adapter });
 

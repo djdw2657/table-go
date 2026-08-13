@@ -6,6 +6,7 @@ import { Calendar } from "@repo/design-system/components/ui/calendar";
 import { Card, CardContent } from "@repo/design-system/components/ui/card";
 import { Input } from "@repo/design-system/components/ui/input";
 import { Label } from "@repo/design-system/components/ui/label";
+import { useReservationChangeSignal } from "@repo/realtime";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -32,6 +33,7 @@ import {
   NAME_ERROR,
   PHONE_ERROR,
 } from "./validation";
+import { WaitlistDialogSlot } from "./waitlist-dialog";
 
 interface ReservationFormProps {
   timeSlots: TimeSlot[];
@@ -105,6 +107,8 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   const [nameTouched, setNameTouched] = useState(false);
   const [phoneTouched, setPhoneTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
+
+  const [waitlistSlotId, setWaitlistSlotId] = useState<string | null>(null);
 
   const nameError =
     nameTouched && !isValidName(customerName) ? NAME_ERROR : null;
@@ -219,6 +223,21 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
     };
   }, [displayedMonth]);
 
+  // Instant push on top of the polling above (which stays as a fallback if
+  // the realtime connection drops) — any reservation/waitlist change
+  // anywhere triggers an immediate refetch of just what's on screen.
+  useReservationChangeSignal(() => {
+    if (selectedDate) {
+      getAvailability(toDateStr(selectedDate)).then((result) => {
+        setSlotAvailability(result.slotAvailability);
+      });
+    }
+    getMonthAvailability(toMonthStr(displayedMonth)).then((result) => {
+      setFullDates(new Set(result.fullDates));
+      setHolidayDates(new Set(result.holidayDates));
+    });
+  });
+
   // "예약하기" only moves to the review step — nothing is written yet.
   const handleReview = (event: FormEvent) => {
     event.preventDefault();
@@ -280,6 +299,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
   };
 
   const selectedTimeSlot = timeSlots.find((slot) => slot.id === selectedSlot);
+  const closeWaitlistDialog = () => setWaitlistSlotId(null);
 
   return (
     <div className="container mx-auto grid max-w-4xl gap-8 pb-12 sm:pb-24 md:grid-cols-2">
@@ -365,6 +385,7 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
             {selectedDate && (
               <TimeSlotGrid
                 disabled={isLoadingAvailability}
+                onJoinWaitlist={setWaitlistSlotId}
                 onSelect={setSelectedSlot}
                 selectedSlot={selectedSlot}
                 slotAvailability={slotAvailability}
@@ -465,6 +486,18 @@ export function ReservationForm({ timeSlots }: ReservationFormProps) {
           </Button>
         </form>
       )}
+
+      <WaitlistDialogSlot
+        customerEmail={customerEmail}
+        customerName={customerName}
+        customerPhone={customerPhone}
+        onClose={closeWaitlistDialog}
+        partySize={partySize}
+        request={request}
+        selectedDate={selectedDate}
+        timeSlots={timeSlots}
+        waitlistSlotId={waitlistSlotId}
+      />
     </div>
   );
 }

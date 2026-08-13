@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@repo/design-system/components/ui/table";
 import { Textarea } from "@repo/design-system/components/ui/textarea";
+import { useReservationChangeSignal } from "@repo/realtime";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -48,6 +49,7 @@ const POLL_INTERVAL_MS = 2000;
 const STATUS_LABELS: Record<ReservationStatus, string> = {
   PENDING: "대기중",
   CONFIRMED: "확정",
+  COMPLETED: "이용완료",
   CANCELLED: "취소",
 };
 
@@ -57,6 +59,7 @@ const STATUS_BADGE_VARIANT: Record<
 > = {
   PENDING: "secondary",
   CONFIRMED: "default",
+  COMPLETED: "secondary",
   CANCELLED: "destructive",
 };
 
@@ -109,6 +112,9 @@ export const ReservationsTable = ({
     });
     setReservations(result);
   };
+
+  // Instant push on top of the polling above (which stays as a fallback).
+  useReservationChangeSignal(refresh);
 
   const openDetail = (reservation: ReservationWithSlot) => {
     setSelected(reservation);
@@ -184,6 +190,7 @@ export const ReservationsTable = ({
               <SelectItem value="ALL">전체</SelectItem>
               <SelectItem value="PENDING">대기중</SelectItem>
               <SelectItem value="CONFIRMED">확정</SelectItem>
+              <SelectItem value="COMPLETED">이용완료</SelectItem>
               <SelectItem value="CANCELLED">취소</SelectItem>
             </SelectContent>
           </Select>
